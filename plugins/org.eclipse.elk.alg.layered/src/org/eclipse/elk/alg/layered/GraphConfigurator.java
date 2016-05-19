@@ -21,6 +21,7 @@ import org.eclipse.elk.alg.layered.graph.LGraphUtil;
 import org.eclipse.elk.alg.layered.intermediate.IntermediateProcessorStrategy;
 import org.eclipse.elk.alg.layered.intermediate.NodePromotionStrategy;
 import org.eclipse.elk.alg.layered.intermediate.compaction.GraphCompactionStrategy;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor;
 import org.eclipse.elk.alg.layered.p5edges.EdgeRouterFactory;
 import org.eclipse.elk.alg.layered.properties.GraphProperties;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
@@ -312,6 +313,11 @@ final class GraphConfigurator {
         // Introduce in-layer constraints to preserve the order of regular nodes
         if (lgraph.getProperty(LayeredOptions.CROSSING_MINIMIZATION_SEMI_INTERACTIVE)) {
             configuration.addBeforePhase3(IntermediateProcessorStrategy.SEMI_INTERACTIVE_CROSSMIN_PROCESSOR);
+        }
+        
+        // Bundle edges
+        if (lgraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY) != EdgeBundlingProcessor.Strategy.NONE) {
+            configuration.addAfterPhase5(IntermediateProcessorStrategy.EDGE_BUNDLING_PROCESSOR);
         }
 
         return configuration;
