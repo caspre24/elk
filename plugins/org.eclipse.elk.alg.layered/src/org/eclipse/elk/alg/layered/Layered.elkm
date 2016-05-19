@@ -15,6 +15,8 @@ import org.eclipse.elk.alg.layered.LayeredLayoutProvider
 import org.eclipse.elk.alg.layered.intermediate.NodePromotionStrategy
 import org.eclipse.elk.alg.layered.intermediate.compaction.ConstraintCalculationStrategy
 import org.eclipse.elk.alg.layered.intermediate.compaction.GraphCompactionStrategy
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor.Strategy
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor.Style
 import org.eclipse.elk.alg.layered.p1cycles.CycleBreakingStrategy
 import org.eclipse.elk.alg.layered.p2layers.LayeringStrategy
 import org.eclipse.elk.alg.layered.p3order.CrossingMinimizationStrategy
@@ -128,6 +130,10 @@ algorithm layered(LayeredLayoutProvider) {
     supports org.eclipse.elk.alg.layered.layering.nodePromotion.maxIterations
     supports edgeCenterLabelPlacementStrategy
     supports org.eclipse.elk.margins
+    supports edgeBundling.strategy
+    supports edgeBundling.style
+    supports edgeBundling.bundleId
+    supports edgeBundling.bundleSpacing
     supports edgeRouting.sloppySplineRouting
     supports edgeRouting.sloppySplineLayerSpacing
     supports layering.coffmanGraham.layerBound
@@ -563,6 +569,40 @@ advanced option mergeHierarchyEdges: boolean {
 	default = true
 	targets parents
 	legacyIds de.cau.cs.kieler.klay.layered.mergeHierarchyEdges
+}
+
+group edgeBundling {
+    advanced option strategy: Strategy {
+        label "Edge Bundle Strategy"
+        description
+            "Bundle bunches of edges connecting the same two nodes."
+        default = Strategy.NONE
+        targets parents
+    }
+    
+    advanced option style: Style {
+        label "Edge Bundling Style"
+        description
+            "How to visualize bundled edges"
+        default = Style.SINGLE_LINE
+        targets parents
+    }
+    
+    advanced option bundleId: int {
+        label "Edge Bundle ID"
+        description
+            "For manual edge bundling, specifies which bundle this edge is member of."
+        targets edges
+    }
+    
+    advanced option bundleSpacing: float {
+        label "Spacing between bundled edges"
+        description
+            ""
+        default = 2.0f
+        targets parents
+        requires edgeBundling.style == Style.BUNDLE
+    }
 }
 
 advanced option sausageFolding: boolean {
