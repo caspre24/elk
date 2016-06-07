@@ -24,6 +24,9 @@ import org.eclipse.elk.alg.layered.graph.LEdge;
 import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.LPort;
+import org.eclipse.elk.alg.layered.graph.Layer;
+import org.eclipse.elk.alg.layered.graph.LNode.NodeType;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.VerticalSegment;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
 import org.eclipse.elk.alg.layered.properties.LayeredOptions;
 import org.eclipse.elk.alg.layered.properties.PortType;
@@ -164,6 +167,8 @@ public final class OrthogonalRoutingGenerator {
                         KVector point2 = new KVector(x, targety);
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, true);
+
+                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
                     }
                 }
             }
@@ -219,6 +224,8 @@ public final class OrthogonalRoutingGenerator {
                         KVector point2 = new KVector(targetx, y);
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+
+                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
                     }
                 }
             }
@@ -274,6 +281,8 @@ public final class OrthogonalRoutingGenerator {
                         KVector point2 = new KVector(targetx, y);
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+
+                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
                     }
                 }
             }
@@ -545,7 +554,7 @@ public final class OrthogonalRoutingGenerator {
         this.debugPrefix = debugPrefix;
     }
 
-    
+
     ///////////////////////////////////////////////////////////////////////////////
     // Edge Routing
     
@@ -1040,6 +1049,21 @@ public final class OrthogonalRoutingGenerator {
                 createdJunctionPoints.add(jpoint);
             }
         }
+    }
+
+    
+    /**
+     * @param point1
+     * @param layer
+     * @param rank
+     */
+    public void saveLayerAndRank(final LEdge edge, final Layer layer, final HyperNode node) {
+        LEdge originEdge = edge;
+        while (originEdge.getSource().getNode().getType() == NodeType.LONG_EDGE) {
+            originEdge = (LEdge) originEdge.getSource().getNode().getProperty(InternalProperties.ORIGIN);
+        }
+        originEdge.getProperty(InternalProperties.SEGMENTS)
+                .add(new VerticalSegment(layer, node.rank, originEdge, node.start, node.end));
     }
 
 }
