@@ -240,6 +240,7 @@ public final class OrthogonalEdgeRouter implements ILayoutPhase {
             
             // Place the left layer's nodes, if any
             if (leftLayer != null) {
+                leftLayer.getPosition().x = xpos;
                 LGraphUtil.placeNodesHorizontally(leftLayer, xpos);
                 xpos += leftLayer.getSize().x;
             }

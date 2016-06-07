@@ -34,6 +34,8 @@ public final class Layer extends LGraphElement implements Iterable<LNode> {
     private final LGraph owner;
     /** the size of the layer as drawn horizontally. */
     private final KVector size = new KVector();
+    /** the position of the layer. */
+    private final KVector pos = new KVector();
     /** the nodes of the layer. */
     private final List<LNode> nodes = Lists.newArrayList();
     
@@ -63,6 +65,18 @@ public final class Layer extends LGraphElement implements Iterable<LNode> {
      */
     public KVector getSize() {
         return size;
+    }
+    
+    /**
+     * Returns the position of the layer, that is the top left corner of the bounding box
+     * of the contained nodes.
+     * <br/>
+     * The y coordinate might be invalid (not used/set yet).
+     * 
+     * @return the size of the layer
+     */
+    public KVector getPosition() {
+        return pos;
     }
 
     /**
