@@ -10,21 +10,23 @@
  *******************************************************************************/
 package org.eclipse.elk.alg.layered.intermediate.edgebundling;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
-import java.util.Map.Entry;
 import java.util.NavigableSet;
-import java.util.NoSuchElementException;
 
 import org.eclipse.elk.alg.layered.ILayoutProcessor;
 import org.eclipse.elk.alg.layered.graph.LEdge;
 import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.Layer;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.AstarAlgorithm;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Edge;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Graph;
+import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Node;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
 import org.eclipse.elk.alg.layered.properties.LayeredOptions;
 import org.eclipse.elk.alg.layered.properties.Spacings;
@@ -33,11 +35,9 @@ import org.eclipse.elk.core.math.KVectorChain;
 import org.eclipse.elk.core.util.IElkProgressMonitor;
 
 import com.google.common.collect.HashMultimap;
-import com.google.common.collect.LinkedListMultimap;
-import com.google.common.collect.ListMultimap;
+import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
-import com.google.common.collect.Multimaps;
 import com.google.common.collect.Ordering;
 import com.google.common.collect.TreeMultimap;
 
@@ -98,7 +98,7 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
     public void process(final LGraph layeredGraph, final IElkProgressMonitor progressMonitor) {
 
         edgeBundles = HashMultimap.create();
-        // Only sort the values
+        // Sort the values by layer (i.e. by  when traveling along the edge).
         segmentsByEdge = TreeMultimap.create(Ordering.arbitrary(), new Comparator<VerticalSegment>() {
 
             @Override
@@ -153,20 +153,22 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             LEdge exampleEdge = bundle.iterator().next();
             Layer sourceLayer = exampleEdge.getSource().getNode().getLayer();
             Layer targetLayer = exampleEdge.getTarget().getNode().getLayer();
+            Layer preTargetLayer = targetLayer.getGraph().getLayers().get(targetLayer.getIndex() - 1);
+
+            KVectorChain commonBendPoints = findShortestEdge(bundle, sourceLayer, preTargetLayer, targetLayer);
 
             System.out.println("bundle " + exampleEdge + " split");
             int mergeRank = findFreeSlot(sourceLayer, bundle, false);
             System.out.println("bundle " + exampleEdge + " merge");
-            int splitRank =
-                    findFreeSlot(targetLayer.getGraph().getLayers().get(targetLayer.getIndex() - 1), bundle, true);
+            int splitRank = findFreeSlot(preTargetLayer, bundle, true);
 
-            if (splitRank >= 0) {
+            if (mergeRank != -1 && splitRank != -1) {
 
                 double mergeX = sourceLayer.getPosition().x + sourceLayer.getSize().x + spacings.edgeNodeSpacing
                         + spacings.edgeEdgeSpacing * mergeRank;
                 double splitX =
                         targetLayer.getPosition().x - spacings.edgeNodeSpacing - spacings.edgeEdgeSpacing * splitRank;
-                KVectorChain commonBendPoints = findShortestEdge(bundle, mergeX, splitX);
+
                 // Set the new bendpoints for each edge and add some port specific ones to reach the "merge" point.
                 Iterator<LEdge> iterator = bundle.iterator();
                 double currOffset = 0;
@@ -226,44 +228,94 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
     }
 
     /**
+     * Find shortest edge by build the following aux graph:
+     * <pre>
+     *   -o--o---o--o-
+     *  /  X      X   \
+     * o--o--o---o--o--o
+     *  \  X      X   /
+     *   -o--o---o--o-
+     *                 |
+     *                 -- goal node
+     *   
+     *   
+     * </pre>
      * @param bundle
+     * @param targetLayer 
      * @param spacings
      * @param offset
      * @return
      */
-    private KVectorChain findShortestEdge(final Collection<LEdge> bundle, final double mergeX, final double splitX) {
+    private KVectorChain findShortestEdge(final Collection<LEdge> bundle, final Layer sourceLayer,
+            final Layer preTargetLayer, final Layer targetLayer) {
 
-        LEdge refEdge = bundle.iterator().next();
+        int bundleSize = bundle.size();
+        ArrayList<Node> sourcePortNodes = Lists.newArrayListWithCapacity(bundleSize);
+        ArrayList<Node> sourceEdgeNodes = Lists.newArrayListWithCapacity(bundleSize);
+        ArrayList<Node> targetEdgeNodes = Lists.newArrayListWithCapacity(bundleSize);
+        ArrayList<Node> targetPortNodes = Lists.newArrayListWithCapacity(bundleSize);
 
-        KVectorChain commonBendPoints = new KVectorChain();
-        // Make sure the reference edge has at least two bendpoints.
-        if (refEdge.getBendPoints().isEmpty()) {
-            double y = refEdge.getSource().getAbsoluteAnchor().y;
-            refEdge.getBendPoints().add(new KVector(mergeX, y));
-            refEdge.getBendPoints().add(new KVector(splitX, y));
-            commonBendPoints.addAllAsCopies(0, refEdge.getBendPoints());
-        } else {
+        double startHeight = 0;
+        double goalHeight = 0;
+        for (LEdge lEdge : bundle) {
+            // start and goal stuff
+            KVector sourceAnchor = lEdge.getSource().getAbsoluteAnchor();
+            KVector targetAnchor = lEdge.getTarget().getAbsoluteAnchor();
+            startHeight += sourceAnchor.y;
+            goalHeight += targetAnchor.y;
 
-            // Make sure there's only one bendpoint with x less or equal to firstX (resp. greater or equal to lastX)
-            // to get rid of near-node bendpoints. These will be added later for each port independently.
-            commonBendPoints.addAllAsCopies(0, refEdge.getBendPoints());
-            Iterator<KVector> commonBpIter = commonBendPoints.iterator();
-            KVector bp = commonBpIter.next();
-            while (commonBpIter.hasNext() && bp.x <= mergeX) {
-                commonBpIter.remove();
-                bp = commonBpIter.next();
-            }
-            commonBendPoints.addFirst(new KVector(mergeX, bp.y));
-
-            commonBpIter = commonBendPoints.descendingIterator();
-            bp = commonBpIter.next();
-            while (commonBpIter.hasNext() && bp.x >= splitX) {
-                commonBpIter.remove();
-                bp = commonBpIter.next();
-            }
-            commonBendPoints.add(new KVector(splitX, bp.y));
+            sourcePortNodes.add(new Node(Graph.X_SOURCE_PORTS, sourceAnchor.y));
+            targetPortNodes.add(new Node(Graph.X_TARGET_PORTS, targetAnchor.y));
+            Edge edge = generateWeightedCompanionEdge(lEdge, sourceLayer, preTargetLayer);
+            sourceEdgeNodes.add(edge.getSource());
+            targetEdgeNodes.add(edge.getTarget());
         }
-        return commonBendPoints;
+        
+        Graph graph = new Graph();
+        Node startNode = new Node(Graph.X_START, startHeight / bundleSize);
+        graph.addNode(startNode);
+        Node goalNode = new Node(Graph.X_GOAL, goalHeight / bundleSize);
+        graph.addNode(goalNode);
+        for (int i = 0; i < bundleSize; i++) {
+            // Add the nodes to the graph.
+            graph.addNode(sourcePortNodes.get(i));
+            graph.addNode(sourceEdgeNodes.get(i));
+            graph.addNode(targetEdgeNodes.get(i));
+            graph.addNode(targetPortNodes.get(i));
+            // Create edges from start to all source-port-nodes and 
+            // from all target-port-nodes to goal.
+            new Edge(startNode, sourcePortNodes.get(i));
+            new Edge(targetPortNodes.get(i), goalNode);
+            // Create bicliques between port- and edge-nodes for both source and target side.
+            for (int j = 0; j < bundleSize; j++) {
+                new Edge(sourcePortNodes.get(i), sourceEdgeNodes.get(j));
+                new Edge(targetEdgeNodes.get(i), targetPortNodes.get(j));
+            }
+        }
+        List<Node> shortestPath = AstarAlgorithm.findShortestPath(graph, startNode, goalNode);
+        return null;
+    }
+
+    /**
+     * @param lEdge
+     * @param sourceLayer
+     * @param preTargetLayer
+     * @return
+     */
+    private Edge generateWeightedCompanionEdge(final LEdge lEdge, final Layer sourceLayer, final Layer preTargetLayer) {
+        double weight = 0;
+        //TODO find ys
+        double firstY = Double.NaN;
+        double lastY = Double.NaN;
+        Iterable<VerticalSegment> segments = segmentsByEdge.get(lEdge);
+        for (VerticalSegment segment : segments) {
+            if (segment.layer != sourceLayer && segment.layer != preTargetLayer) {
+                weight += segment.yEnd - segment.yStart;
+            }
+        }
+        Node sourceNode = new Node(Graph.X_SOURCE_EDGES, firstY, lEdge);
+        Node targetNode = new Node(Graph.X_TARGET_EDGES, lastY);
+        return new Edge(sourceNode, targetNode, weight);
     }
 
     /**
