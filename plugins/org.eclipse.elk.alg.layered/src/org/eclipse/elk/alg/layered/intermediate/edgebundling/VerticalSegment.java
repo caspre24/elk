@@ -17,37 +17,105 @@ import org.eclipse.elk.alg.layered.graph.Layer;
  * @author Kiel University
  *
  */
+/**
+ * @author Kiel University
+ *
+ */
 public class VerticalSegment implements Comparable<VerticalSegment> {
 
-    public Layer layer;
-    public int rank;
-    public LEdge edge;
-    public double yStart;
-    public double yEnd;
-
-    /**
-     * 
-     */
-    public VerticalSegment() {
-        yStart = Double.POSITIVE_INFINITY;
-        yEnd = Double.NEGATIVE_INFINITY;
-    }
+    private Layer layer;
+    private int rank;
+    private LEdge edge;
+    private double start;
+    private double end;
 
     /**
      * @param layer
      * @param rank
      * @param edge
-     * @param yStart
-     * @param yEnd
+     * @param start
+     * @param end
      */
-    public VerticalSegment(final Layer layer, final int rank, final LEdge edge, final double yStart,
-            final double yEnd) {
-        super();
+    public VerticalSegment(final Layer layer, final int rank, final LEdge edge, final double start,
+            final double end) {
         this.layer = layer;
         this.rank = rank;
         this.edge = edge;
-        this.yStart = yStart;
-        this.yEnd = yEnd;
+        this.start = start;
+        this.end = end;
+    }
+
+    /**
+     * 
+     */
+    public VerticalSegment() {
+        start = Double.POSITIVE_INFINITY;
+        end = Double.NEGATIVE_INFINITY;
+    }
+
+    /**
+     * @return the start
+     */
+    public double getStart() {
+        return start;
+    }
+
+    /**
+     * @param start
+     *            the start to set
+     */
+    public void setStart(final double start) {
+        this.start = start;
+    }
+
+    /**
+     * @return the End
+     */
+    public double getEnd() {
+        return end;
+    }
+
+    /**
+     * @param end
+     *            the end to set
+     */
+    public void setEnd(final double end) {
+        this.end = end;
+    }
+
+    /**
+     * @return the layer
+     */
+    public Layer getLayer() {
+        return layer;
+    }
+
+    /**
+     * @return the rank
+     */
+    public int getRank() {
+        return rank;
+    }
+
+    /**
+     * @return the edge
+     */
+    public LEdge getEdge() {
+        return edge;
+    }
+
+    /**
+     * @return the minimum of start and end.
+     */
+    public double getTop() {
+        return Math.min(start, end);
+    }
+
+    /**
+     * @return the maximum of start and end.
+     */
+    public double getBottom() {
+        return Math.max(start, end);
     }
 
     /*
@@ -57,7 +125,7 @@ public class VerticalSegment implements Comparable<VerticalSegment> {
      */
     @Override
     public int compareTo(final VerticalSegment o) {
-        return (int) (yStart != o.yStart ? yStart - o.yStart : yEnd - o.yEnd);
+        return (int) (getTop() != o.getTop() ? getTop() - o.getTop() : getBottom() - o.getBottom());
     }
 
     /**
@@ -65,16 +133,19 @@ public class VerticalSegment implements Comparable<VerticalSegment> {
      * @return
      */
     public boolean overlaps(final VerticalSegment o) {
-        return ((yStart <= o.yStart && yEnd > o.yStart) || (yStart >= o.yStart && yStart < o.yEnd));
+        return ((getTop() <= o.getTop() && getBottom() > o.getTop())
+                || (getTop() >= o.getTop() && getTop() < o.getBottom()));
     }
 
-    /* (non-Javadoc)
+    /*
+     * (non-Javadoc)
+     * 
      * @see java.lang.Object#toString()
      */
     @Override
     public String toString() {
-        return "VerticalSegment [layer=" + layer + ", rank=" + rank + ", edge=" + edge + ", yStart=" + yStart
-                + ", yEnd=" + yEnd + "]";
+        return "VerticalSegment [layer=" + layer + ", rank=" + rank + ", edge=" + edge + ", yStart=" + start
+                + ", yEnd=" + end + "]";
     }
 
 }

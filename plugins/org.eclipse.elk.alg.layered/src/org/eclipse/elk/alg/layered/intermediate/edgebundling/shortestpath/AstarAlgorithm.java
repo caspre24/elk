@@ -28,12 +28,11 @@ public final class AstarAlgorithm {
     }
 
     /**
-     * @param graph
      * @param start
      * @param goal
      * @return
      */
-    public static List<Node> findShortestPath(final Graph graph, final Node start, final Node goal) {
+    public static List<Node> findShortestPath(final Node start, final Node goal) {
         TreeSet<Node> openSet = new TreeSet<Node>();
         Set<Node> closedSet = new HashSet<Node>();
         openSet.add(start);

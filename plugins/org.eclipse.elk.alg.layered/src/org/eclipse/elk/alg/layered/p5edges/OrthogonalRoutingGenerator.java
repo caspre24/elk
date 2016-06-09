@@ -168,7 +168,7 @@ public final class OrthogonalRoutingGenerator {
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, true);
 
-                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
+                        saveVerticalSegment(edge, port.getNode().getLayer(), hyperNode.rank, sourcey, targety);
                     }
                 }
             }
@@ -225,7 +225,7 @@ public final class OrthogonalRoutingGenerator {
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, false);
 
-                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
+                        saveVerticalSegment(edge, port.getNode().getLayer(), hyperNode.rank, sourcex, targetx);
                     }
                 }
             }
@@ -282,7 +282,7 @@ public final class OrthogonalRoutingGenerator {
                         edge.getBendPoints().add(point2);
                         addJunctionPointIfNecessary(edge, hyperNode, point2, false);
 
-                        saveLayerAndRank(edge, port.getNode().getLayer(), hyperNode);
+                        saveVerticalSegment(edge, port.getNode().getLayer(), hyperNode.rank, sourcex, targetx);
                     }
                 }
             }
@@ -1057,13 +1057,15 @@ public final class OrthogonalRoutingGenerator {
      * @param layer
      * @param rank
      */
-    public void saveLayerAndRank(final LEdge edge, final Layer layer, final HyperNode node) {
+    private void saveVerticalSegment(final LEdge edge, final Layer layer,
+            final int rank, final double sourcey, final double tagety) {
+        
         LEdge originEdge = edge;
         while (originEdge.getSource().getNode().getType() == NodeType.LONG_EDGE) {
             originEdge = (LEdge) originEdge.getSource().getNode().getProperty(InternalProperties.ORIGIN);
         }
         originEdge.getProperty(InternalProperties.SEGMENTS)
-                .add(new VerticalSegment(layer, node.rank, originEdge, node.start, node.end));
+                .add(new VerticalSegment(layer, rank, originEdge, sourcey, tagety));
     }
 
 }
