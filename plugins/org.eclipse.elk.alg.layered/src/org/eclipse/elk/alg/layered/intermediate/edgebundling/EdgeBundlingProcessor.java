@@ -25,7 +25,6 @@ import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.Layer;
 import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.AstarAlgorithm;
 import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Edge;
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Graph;
 import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Node;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
 import org.eclipse.elk.alg.layered.properties.LayeredOptions;
@@ -103,7 +102,7 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
 
             @Override
             public int compare(final VerticalSegment s1, final VerticalSegment s2) {
-                return s1.layer == s2.layer ? s2.compareTo(s2) : s2.layer.getIndex() - s1.layer.getIndex();
+                return s1.getLayer() == s2.getLayer() ? s2.compareTo(s2) : s2.getLayer().getIndex() - s1.getLayer().getIndex();
             }
         });
         segmentsBySlot = Maps.newHashMap();
@@ -198,9 +197,9 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         VerticalSegment mergeSegment = new VerticalSegment();
         for (LEdge lEdge : bundle) {
             for (VerticalSegment segment : segmentsByEdge.get(lEdge)) {
-                if (segment.layer == layer) {
-                    mergeSegment.yStart = Math.min(mergeSegment.yStart, segment.yStart);
-                    mergeSegment.yEnd = Math.max(mergeSegment.yEnd, segment.yEnd);
+                if (segment.getLayer() == layer) {
+                    mergeSegment.setStart(Math.min(mergeSegment.getTop(), segment.getTop()));
+                    mergeSegment.setEnd(Math.max(mergeSegment.getBottom(), segment.getBottom()));
                     break;
                 }
             }
@@ -214,7 +213,7 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         for (Integer rank : ranks) {
             boolean free = true;
             for (VerticalSegment segment : slotsInThisLayer.get(rank)) {
-                if ((!bundle.contains(segment.edge)) && mergeSegment.overlaps(segment)) {
+                if ((!bundle.contains(segment.getEdge())) && mergeSegment.overlaps(segment)) {
                     free = false;
                     break;
                 }
@@ -226,6 +225,15 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         }
         return -1;
     }
+    
+
+
+    private static int X_START = 0;
+    private static int X_SOURCE_PORTS = 20;
+    private static int X_SOURCE_EDGES = 40;
+    private static int X_TARGET_EDGES = 60;
+    private static int X_TARGET_PORTS = 80;
+    private static int X_GOAL = 100;
 
     /**
      * Find shortest edge by build the following aux graph:
@@ -264,35 +272,27 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             startHeight += sourceAnchor.y;
             goalHeight += targetAnchor.y;
 
-            sourcePortNodes.add(new Node(Graph.X_SOURCE_PORTS, sourceAnchor.y));
-            targetPortNodes.add(new Node(Graph.X_TARGET_PORTS, targetAnchor.y));
+            sourcePortNodes.add(new Node(X_SOURCE_PORTS, sourceAnchor.y));
+            targetPortNodes.add(new Node(X_TARGET_PORTS, targetAnchor.y));
             Edge edge = generateWeightedCompanionEdge(lEdge, sourceLayer, preTargetLayer);
             sourceEdgeNodes.add(edge.getSource());
             targetEdgeNodes.add(edge.getTarget());
         }
         
-        Graph graph = new Graph();
-        Node startNode = new Node(Graph.X_START, startHeight / bundleSize);
-        graph.addNode(startNode);
-        Node goalNode = new Node(Graph.X_GOAL, goalHeight / bundleSize);
-        graph.addNode(goalNode);
+        Node startNode = new Node(X_START, startHeight / bundleSize);
+        Node goalNode = new Node(X_GOAL, goalHeight / bundleSize);
         for (int i = 0; i < bundleSize; i++) {
-            // Add the nodes to the graph.
-            graph.addNode(sourcePortNodes.get(i));
-            graph.addNode(sourceEdgeNodes.get(i));
-            graph.addNode(targetEdgeNodes.get(i));
-            graph.addNode(targetPortNodes.get(i));
             // Create edges from start to all source-port-nodes and 
             // from all target-port-nodes to goal.
-            new Edge(startNode, sourcePortNodes.get(i));
-            new Edge(targetPortNodes.get(i), goalNode);
+            new Edge(startNode, sourcePortNodes.get(i), 0);
+            new Edge(targetPortNodes.get(i), goalNode, 0);
             // Create bicliques between port- and edge-nodes for both source and target side.
             for (int j = 0; j < bundleSize; j++) {
                 new Edge(sourcePortNodes.get(i), sourceEdgeNodes.get(j));
                 new Edge(targetEdgeNodes.get(i), targetPortNodes.get(j));
             }
         }
-        List<Node> shortestPath = AstarAlgorithm.findShortestPath(graph, startNode, goalNode);
+        List<Node> shortestPath = AstarAlgorithm.findShortestPath(startNode, goalNode);
         return null;
     }
 
@@ -309,12 +309,16 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         double lastY = Double.NaN;
         Iterable<VerticalSegment> segments = segmentsByEdge.get(lEdge);
         for (VerticalSegment segment : segments) {
-            if (segment.layer != sourceLayer && segment.layer != preTargetLayer) {
-                weight += segment.yEnd - segment.yStart;
+            if (segment.getLayer() != sourceLayer && segment.getLayer() != preTargetLayer) {
+                weight += Math.abs(segment.getEnd() - segment.getStart());
             }
+            if (Double.isNaN(firstY)) {
+                firstY = segment.getStart();
+            }
+            lastY = segment.getEnd();
         }
-        Node sourceNode = new Node(Graph.X_SOURCE_EDGES, firstY, lEdge);
-        Node targetNode = new Node(Graph.X_TARGET_EDGES, lastY);
+        Node sourceNode = new Node(X_SOURCE_EDGES, firstY, lEdge);
+        Node targetNode = new Node(X_TARGET_EDGES, lastY);
         return new Edge(sourceNode, targetNode, weight);
     }
 
@@ -354,12 +358,12 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
      */
     private void addToSlot(final LEdge edge, final VerticalSegment segment) {
         segmentsByEdge.put(edge, segment);
-        TreeMultimap<Integer, VerticalSegment> slot = segmentsBySlot.get(segment.layer);
+        TreeMultimap<Integer, VerticalSegment> slot = segmentsBySlot.get(segment.getLayer());
         if (slot == null) {
             slot = TreeMultimap.create();
-            segmentsBySlot.put(segment.layer, slot);
+            segmentsBySlot.put(segment.getLayer(), slot);
         }
-        slot.put(segment.rank, segment);
+        slot.put(segment.getRank(), segment);
     }
 
 }
