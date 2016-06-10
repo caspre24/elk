@@ -311,9 +311,9 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         for (VerticalSegment segment : segments) {
             if (segment.getLayer() != sourceLayer && segment.getLayer() != preTargetLayer) {
                 weight += Math.abs(segment.getEnd() - segment.getStart());
-            }
-            if (Double.isNaN(firstY)) {
-                firstY = segment.getStart();
+                if (Double.isNaN(firstY)) {
+                    firstY = segment.getStart();
+                }
             }
             lastY = segment.getEnd();
         }
