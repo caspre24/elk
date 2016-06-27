@@ -60,4 +60,12 @@ public class Edge {
     public double getWeight() {
         return weight;
     }
+
+    /* (non-Javadoc)
+     * @see java.lang.Object#toString()
+     */
+    @Override
+    public String toString() {
+        return "Edge [source=" + source.getPos() + ", target=" + target.getPos() + ", weight=" + weight + "]";
+    }
 }

@@ -20,7 +20,7 @@ import com.google.common.collect.Lists;
  * @author Kiel University
  *
  */
-public class Node implements Comparable<Node> {
+public class Node implements Comparable<Node>, Updatable<Double> {
     private Object origin;
     private KVector pos;
     private List<Edge> outgoingEdges = Lists.newLinkedList();
@@ -81,7 +81,7 @@ public class Node implements Comparable<Node> {
     /**
      * @param gScore the gScore to set
      */
-    public void setgScore(double gScore) {
+    public void setgScore(final double gScore) {
         this.gScore = gScore;
     }
 
@@ -95,7 +95,7 @@ public class Node implements Comparable<Node> {
     /**
      * @param predecessor the predecessor to set
      */
-    public void setPredecessor(Node predecessor) {
+    public void setPredecessor(final Node predecessor) {
         this.predecessor = predecessor;
     }
 
@@ -110,7 +110,23 @@ public class Node implements Comparable<Node> {
      * @see java.lang.Comparable#compareTo(java.lang.Object)
      */
     @Override
-    public int compareTo(Node o) {
-        return (int) (o.fScore - fScore);
+    public int compareTo(final Node o) {
+        return Double.compare(fScore, o.fScore);
+    }
+
+    /* (non-Javadoc)
+     * @see java.lang.Object#toString()
+     */
+    @Override
+    public String toString() {
+        return "Node [origin=" + origin + ", pos=" + pos + ", fScore=" + fScore + ", gScore=" + gScore + "]";
+    }
+
+    /* (non-Javadoc)
+     * @see org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Updatable#update(java.lang.Object)
+     */
+    @Override
+    public void update(final Double newValue) {
+        setfScore(newValue);
     }
 }

@@ -14,7 +14,6 @@ import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Set;
-import java.util.TreeSet;
 
 import com.google.common.collect.Lists;
 
@@ -33,7 +32,7 @@ public final class AstarAlgorithm {
      * @return
      */
     public static List<Node> findShortestPath(final Node start, final Node goal) {
-        TreeSet<Node> openSet = new TreeSet<Node>();
+        UpdateableTreeSet<Node, Double> openSet = new UpdateableTreeSet<Node, Double>();
         Set<Node> closedSet = new HashSet<Node>();
         openSet.add(start);
         start.setgScore(0);
@@ -64,7 +63,7 @@ public final class AstarAlgorithm {
                 // This is the best path yet, record it!
                 neighbor.setPredecessor(current);
                 neighbor.setgScore(tentativeGScore);
-                neighbor.setfScore(tentativeGScore + estimateScore(neighbor, goal));
+                openSet.update(neighbor, tentativeGScore + estimateScore(neighbor, goal));
             }
         }
         return null;
