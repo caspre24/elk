@@ -12,16 +12,19 @@ package org.eclipse.elk.alg.layered.intermediate.edgebundling;
 
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
-import java.util.NavigableSet;
+import java.util.SortedSet;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import org.eclipse.elk.alg.layered.ILayoutProcessor;
 import org.eclipse.elk.alg.layered.graph.LEdge;
 import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.graph.LNode;
+import org.eclipse.elk.alg.layered.graph.LPort;
 import org.eclipse.elk.alg.layered.graph.Layer;
 import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.AstarAlgorithm;
 import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Edge;
@@ -48,9 +51,10 @@ import com.google.common.collect.TreeMultimap;
  * 
  * <dl>
  * <dt>Precondition:</dt>
- * <dd>a graph with routed edges.</dd>
+ * <dd>a graph with routed edges,</dd>
+ * <dd>all dummy nodes are removed from the graph.</dd>
  * <dt>Postcondition:</dt>
- * <dd>all big node dummy nodes are removed from the graph.</dd>
+ * <dd>edges are bundled with common bendpoints</dd>
  * <dt>Slots:</dt>
  * <dd>After phase 5.</dd>
  * <dt>Same-slot dependencies:</dt>
@@ -85,7 +89,8 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
 
     private Multimap<Integer, LEdge> edgeBundles;
     private TreeMultimap<LEdge, VerticalSegment> segmentsByEdge;
-    private HashMap<Layer, TreeMultimap<Integer, VerticalSegment>> segmentsBySlot;
+    private HashMap<Layer, TreeMultimap<Integer, VerticalSegment>> segmentsByLayerByRank;
+    private HashMap<Layer, Integer> highestRankPerLayer;
 
     /*
      * (non-Javadoc)
@@ -94,41 +99,64 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
      * org.eclipse.elk.core.util.IElkProgressMonitor)
      */
     @Override
-    public void process(final LGraph layeredGraph, final IElkProgressMonitor progressMonitor) {
+    public void process(final LGraph lGraph, final IElkProgressMonitor progressMonitor) {
 
         edgeBundles = HashMultimap.create();
-        // Sort the values by layer (i.e. by  when traveling along the edge).
+        // Sort the segments by layer (i.e. the order when traveling along the edge).
         segmentsByEdge = TreeMultimap.create(Ordering.arbitrary(), new Comparator<VerticalSegment>() {
 
             @Override
             public int compare(final VerticalSegment s1, final VerticalSegment s2) {
-                return s1.getLayer() == s2.getLayer() ? s2.compareTo(s2) : s2.getLayer().getIndex() - s1.getLayer().getIndex();
+                return s1.getLayer() == s2.getLayer() ? s2.compareTo(s2)
+                        : s2.getLayer().getIndex() - s1.getLayer().getIndex();
             }
         });
-        segmentsBySlot = Maps.newHashMap();
+        segmentsByLayerByRank = Maps.newHashMap();
+        highestRankPerLayer = Maps.newHashMap();
 
         System.out.println("grouping edges");
-        switch (layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY)) {
+        switch (lGraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY)) {
         case AUTOMATIC:
-            System.out.println("edgebundling strategy AUTOMATIC currently not supported");
-            return;
+            groupAndSplitEdgesAutomatically(lGraph);
+            break;
         case MANUAL:
-            groupAndSplitEdges(layeredGraph);
+            groupAndSplitEdgesManually(lGraph);
             break;
         case NONE:
         default:
             return;
         }
 
+        // divide edges into vertical segments
+        for (Layer layer : lGraph) {
+            for (LNode node : layer) {
+                for (LEdge edge : node.getOutgoingEdges()) {
+                    for (VerticalSegment segment : edge.getProperty(InternalProperties.SEGMENTS)) {
+                        addToSlot(edge, segment);
+                    }
+                }
+            }
+        }
+        // Save number of ranks per layer.
+        for (Layer layer : lGraph) {
+            TreeMultimap<Integer, VerticalSegment> segmentsByRank = segmentsByLayerByRank.get(layer);
+            if (segmentsByRank != null) {
+                highestRankPerLayer.put(layer, segmentsByRank.keySet().last());
+            } else {
+                highestRankPerLayer.put(layer, -1);
+            }
+        }
+
         System.out.println("merging edges");
-        bundleEdges(layeredGraph);
+        bundleEdges(lGraph);
 
         System.out.println("edges merged");
 
         // dispose
         edgeBundles = null;
         segmentsByEdge = null;
-        segmentsBySlot = null;
+        segmentsByLayerByRank = null;
+        highestRankPerLayer = null;
     }
 
     /**
@@ -154,31 +182,70 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             Layer targetLayer = exampleEdge.getTarget().getNode().getLayer();
             Layer preTargetLayer = targetLayer.getGraph().getLayers().get(targetLayer.getIndex() - 1);
 
-            KVectorChain commonBendPoints = findShortestEdge(bundle, sourceLayer, preTargetLayer, targetLayer);
+            LEdge shortestEdge = findShortestEdge(bundle, sourceLayer, preTargetLayer, targetLayer);
+
+            KVectorChain commonBendPoints = new KVectorChain();
+            List<VerticalSegment> commonSegments = Lists.newLinkedList();
+            double mergeY = shortestEdge.getSource().getAbsoluteAnchor().y;
+            double splitY = shortestEdge.getTarget().getAbsoluteAnchor().y;
+            for (VerticalSegment segment : segmentsByEdge.get(shortestEdge)) {
+                if (segment.getLayer() == sourceLayer) {
+                    mergeY = segment.getEnd();
+                } else if (segment.getLayer() == preTargetLayer) {
+                    splitY = segment.getStart();
+                } else {
+                    double x = calcX(spacings, segment.getLayer(), segment.getRank());
+                    commonBendPoints.add(x, segment.getStart());
+                    commonBendPoints.add(x, segment.getEnd());
+                    commonSegments.add(segment);
+                }
+            }
+            commonBendPoints.addFirst(0, mergeY);
+            commonBendPoints.add(0, splitY);
 
             System.out.println("bundle " + exampleEdge + " split");
-            int mergeRank = findFreeSlot(sourceLayer, bundle, false);
+            int mergeRank = findFreeSlot(sourceLayer, bundle, mergeY, false);
             System.out.println("bundle " + exampleEdge + " merge");
-            int splitRank = findFreeSlot(preTargetLayer, bundle, true);
+            int splitRank = findFreeSlot(preTargetLayer, bundle, splitY, true);
 
             if (mergeRank != -1 && splitRank != -1) {
 
-                double mergeX = sourceLayer.getPosition().x + sourceLayer.getSize().x + spacings.edgeNodeSpacing
-                        + spacings.edgeEdgeSpacing * mergeRank;
-                double splitX =
-                        targetLayer.getPosition().x - spacings.edgeNodeSpacing - spacings.edgeEdgeSpacing * splitRank;
+                double mergeX = calcX(spacings, sourceLayer, mergeRank);
+                commonBendPoints.getFirst().x = mergeX;
+                double splitX = calcX(spacings, preTargetLayer, splitRank);
+                commonBendPoints.getLast().x = splitX;
 
                 // Set the new bendpoints for each edge and add some port specific ones to reach the "merge" point.
-                Iterator<LEdge> iterator = bundle.iterator();
                 double currOffset = 0;
-                while (iterator.hasNext()) {
-                    LEdge e = iterator.next();
+                for (LEdge e : bundle) {
                     KVectorChain bendPoints = e.getBendPoints();
                     bendPoints.clear();
                     bendPoints.addAllAsCopies(0, commonBendPoints);
                     bendPoints.offset(currOffset, currOffset);
-                    bendPoints.addFirst(new KVector(mergeX, e.getSource().getAbsoluteAnchor().y));
-                    bendPoints.add(new KVector(splitX, e.getTarget().getAbsoluteAnchor().y));
+                    double startY = e.getSource().getAbsoluteAnchor().y;
+                    bendPoints.addFirst(new KVector(mergeX, startY));
+                    double endY = e.getTarget().getAbsoluteAnchor().y;
+                    bendPoints.add(new KVector(splitX, endY));
+
+                    // Update Segments
+                    SortedSet<VerticalSegment> segments = segmentsByEdge.removeAll(e);
+                    // Remove the old segments.
+                    for (VerticalSegment segment : segments) {
+                        segmentsByLayerByRank.get(segment.getLayer()).get(segment.getRank()).remove(segment);
+                    }
+                    List<VerticalSegment> newSegments = Lists.newLinkedList();
+                    // Create new segments
+                    newSegments.add(new VerticalSegment(sourceLayer, mergeRank, e, startY, mergeY));
+                    for (VerticalSegment segment : commonSegments) {
+                        newSegments.add(new VerticalSegment(segment, e));
+                    }
+                    newSegments.add(new VerticalSegment(preTargetLayer, splitRank, e, splitY, endY));
+                    // Insert the new segments to the maps.
+                    segmentsByEdge.putAll(e, newSegments);
+                    for (VerticalSegment segment : newSegments) {
+                        segmentsByLayerByRank.get(segment.getLayer()).put(segment.getRank(), segment);
+                    }
+
                     currOffset += offset;
                 }
             } else {
@@ -188,28 +255,46 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
     }
 
     /**
+     * @param spacings
+     * @param layer
+     * @param rank
+     * @return
+     */
+    private double calcX(final Spacings spacings, final Layer layer, final int rank) {
+        return layer.getPosition().x + layer.getSize().x + spacings.edgeNodeSpacing + spacings.edgeEdgeSpacing * rank;
+    }
+
+    /**
      * @param layer
      * @param bundle
      * @return
      */
-    private int findFreeSlot(final Layer layer, final Collection<LEdge> bundle, final boolean reverseSlots) {
+    private int findFreeSlot(final Layer layer, final Collection<LEdge> bundle, final double mergeY,
+            final boolean reverseSearch) {
+
         // build merge segment
-        VerticalSegment mergeSegment = new VerticalSegment();
-        for (LEdge lEdge : bundle) {
-            for (VerticalSegment segment : segmentsByEdge.get(lEdge)) {
+        VerticalSegment mergeSegment = new VerticalSegment(mergeY, mergeY);
+        // mergeSegment.setStart(mergeY);
+        // mergeSegment.setEnd(mergeY);
+        for (LEdge edge : bundle) {
+            for (VerticalSegment segment : segmentsByEdge.get(edge)) {
                 if (segment.getLayer() == layer) {
-                    mergeSegment.setStart(Math.min(mergeSegment.getTop(), segment.getTop()));
-                    mergeSegment.setEnd(Math.max(mergeSegment.getBottom(), segment.getBottom()));
+                    mergeSegment.include(segment);
+                    LPort port = reverseSearch ? edge.getTarget() : edge.getSource();
+                    mergeSegment.include(port.getAbsoluteAnchor().y);
                     break;
                 }
             }
         }
+
         // find a free slot
-        TreeMultimap<Integer, VerticalSegment> slotsInThisLayer = segmentsBySlot.get(layer);
-        NavigableSet<Integer> ranks = slotsInThisLayer.keySet();
-        if (reverseSlots) {
-            ranks = ranks.descendingSet();
+        TreeMultimap<Integer, VerticalSegment> slotsInThisLayer = segmentsByLayerByRank.get(layer);
+        List<Integer> ranks =
+                IntStream.range(0, highestRankPerLayer.get(layer) + 1).boxed().collect(Collectors.toList());
+        if (reverseSearch) {
+            Collections.reverse(ranks);
         }
+        System.out.println(ranks);
         for (Integer rank : ranks) {
             boolean free = true;
             for (VerticalSegment segment : slotsInThisLayer.get(rank)) {
@@ -220,23 +305,22 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             }
             if (free) {
                 System.out.println("rank " + rank);
-                return reverseSlots ? ranks.size() - 1 - rank : rank;
+                return rank;
             }
         }
         return -1;
     }
-    
 
-
-    private static int X_START = 0;
-    private static int X_SOURCE_PORTS = 20;
-    private static int X_SOURCE_EDGES = 40;
-    private static int X_TARGET_EDGES = 60;
-    private static int X_TARGET_PORTS = 80;
-    private static int X_GOAL = 100;
+    private static final int X_START = 0;
+    private static final int X_SOURCE_PORTS = 20;
+    private static final int X_SOURCE_EDGES = 40;
+    private static final int X_TARGET_EDGES = 60;
+    private static final int X_TARGET_PORTS = 80;
+    private static final int X_GOAL = 100;
 
     /**
-     * Find shortest edge by build the following aux graph:
+     * Find shortest edge by building the following aux graph:
+     * 
      * <pre>
      *   -o--o---o--o-
      *  /  X      X   \
@@ -245,17 +329,18 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
      *   -o--o---o--o-
      *                 |
      *                 -- goal node
-     *   
-     *   
+     * 
+     * 
      * </pre>
+     * 
      * @param bundle
-     * @param targetLayer 
+     * @param targetLayer
      * @param spacings
      * @param offset
      * @return
      */
-    private KVectorChain findShortestEdge(final Collection<LEdge> bundle, final Layer sourceLayer,
-            final Layer preTargetLayer, final Layer targetLayer) {
+    private LEdge findShortestEdge(final Collection<LEdge> bundle, final Layer sourceLayer, final Layer preTargetLayer,
+            final Layer targetLayer) {
 
         int bundleSize = bundle.size();
         ArrayList<Node> sourcePortNodes = Lists.newArrayListWithCapacity(bundleSize);
@@ -278,11 +363,11 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             sourceEdgeNodes.add(edge.getSource());
             targetEdgeNodes.add(edge.getTarget());
         }
-        
+
         Node startNode = new Node(X_START, startHeight / bundleSize);
         Node goalNode = new Node(X_GOAL, goalHeight / bundleSize);
         for (int i = 0; i < bundleSize; i++) {
-            // Create edges from start to all source-port-nodes and 
+            // Create edges from start to all source-port-nodes and
             // from all target-port-nodes to goal.
             new Edge(startNode, sourcePortNodes.get(i), 0);
             new Edge(targetPortNodes.get(i), goalNode, 0);
@@ -293,44 +378,42 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             }
         }
         List<Node> shortestPath = AstarAlgorithm.findShortestPath(startNode, goalNode);
-        return null;
+        DebugWriter.dump(startNode, "graph");
+        DebugWriter.dump(shortestPath, "path");
+        return (LEdge) shortestPath.get(2).getOrigin();
     }
 
     /**
-     * @param lEdge
+     * @param edge
      * @param sourceLayer
      * @param preTargetLayer
      * @return
      */
-    private Edge generateWeightedCompanionEdge(final LEdge lEdge, final Layer sourceLayer, final Layer preTargetLayer) {
+    private Edge generateWeightedCompanionEdge(final LEdge edge, final Layer sourceLayer, final Layer preTargetLayer) {
         double weight = 0;
-        //TODO find ys
-        double firstY = Double.NaN;
-        double lastY = Double.NaN;
-        Iterable<VerticalSegment> segments = segmentsByEdge.get(lEdge);
-        for (VerticalSegment segment : segments) {
-            if (segment.getLayer() != sourceLayer && segment.getLayer() != preTargetLayer) {
+        double firstY = edge.getSource().getAbsoluteAnchor().y;
+        double lastY = edge.getTarget().getAbsoluteAnchor().y;
+        for (VerticalSegment segment : segmentsByEdge.get(edge)) {
+            if (segment.getLayer() == sourceLayer) {
+                firstY = segment.getEnd();
+            } else if (segment.getLayer() == preTargetLayer) {
+                lastY = segment.getStart();
+            } else {
                 weight += Math.abs(segment.getEnd() - segment.getStart());
-                if (Double.isNaN(firstY)) {
-                    firstY = segment.getStart();
-                }
             }
-            lastY = segment.getEnd();
         }
-        Node sourceNode = new Node(X_SOURCE_EDGES, firstY, lEdge);
+        Node sourceNode = new Node(X_SOURCE_EDGES, firstY, edge);
         Node targetNode = new Node(X_TARGET_EDGES, lastY);
-        return new Edge(sourceNode, targetNode, weight);
+        return new Edge(sourceNode, targetNode, weight + (X_TARGET_EDGES - X_SOURCE_EDGES));
     }
 
     /**
      * Iterate through all edges and sort them into bundles according to their bundle id.
      * 
-     * @param layeredGraph
-     * @param edgeBundles
-     * @return
+     * @param lGraph
      */
-    private void groupAndSplitEdges(final LGraph layeredGraph) {
-        for (Layer layer : layeredGraph) {
+    private void groupAndSplitEdgesManually(final LGraph lGraph) {
+        for (Layer layer : lGraph) {
             for (LNode node : layer.getNodes()) {
                 for (LEdge edge : node.getOutgoingEdges()) {
                     // Sort marked edges into bundles.
@@ -339,11 +422,25 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                         System.out.println("found edge " + edge + " for bundle " + bundleId);
                         edgeBundles.put(bundleId, edge);
                     }
+                }
+            }
+        }
+    }
 
-                    // divide edge into vertical segments
-                    Iterator<VerticalSegment> iterSegments = edge.getProperty(InternalProperties.SEGMENTS).iterator();
-                    while (iterSegments.hasNext()) {
-                        addToSlot(edge, iterSegments.next());
+    /**
+     * @param lGraph
+     */
+    private void groupAndSplitEdgesAutomatically(final LGraph lGraph) {
+        int bundleId = 0;
+        for (Layer layer : lGraph) {
+            for (LNode node : layer.getNodes()) {
+                HashMultimap<LNode, LEdge> possibleBundles = HashMultimap.create();
+                for (LEdge edge : node.getOutgoingEdges()) {
+                    possibleBundles.put(edge.getTarget().getNode(), edge);
+                }
+                for (Collection<LEdge> edges : possibleBundles.asMap().values()) {
+                    if (edges.size() > 1) {
+                        edgeBundles.putAll(bundleId++, edges);
                     }
                 }
             }
@@ -358,10 +455,10 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
      */
     private void addToSlot(final LEdge edge, final VerticalSegment segment) {
         segmentsByEdge.put(edge, segment);
-        TreeMultimap<Integer, VerticalSegment> slot = segmentsBySlot.get(segment.getLayer());
+        TreeMultimap<Integer, VerticalSegment> slot = segmentsByLayerByRank.get(segment.getLayer());
         if (slot == null) {
             slot = TreeMultimap.create();
-            segmentsBySlot.put(segment.getLayer(), slot);
+            segmentsByLayerByRank.put(segment.getLayer(), slot);
         }
         slot.put(segment.getRank(), segment);
     }
