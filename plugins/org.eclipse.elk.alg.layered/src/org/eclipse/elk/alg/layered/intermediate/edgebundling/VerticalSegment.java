@@ -44,13 +44,21 @@ public class VerticalSegment implements Comparable<VerticalSegment> {
         this.start = start;
         this.end = end;
     }
+    
+    /**
+     * @param otherSegment
+     * @param newEdge
+     */
+    public VerticalSegment(final VerticalSegment otherSegment, final LEdge newEdge) {
+        this(otherSegment.layer, otherSegment.rank, newEdge, otherSegment.start, otherSegment.end);
+    }
 
     /**
      * 
      */
-    public VerticalSegment() {
-        start = Double.POSITIVE_INFINITY;
-        end = Double.NEGATIVE_INFINITY;
+    public VerticalSegment(final double start, final double end) {
+        this.start = start;
+        this.end = end;
     }
 
     /**
@@ -135,6 +143,16 @@ public class VerticalSegment implements Comparable<VerticalSegment> {
     public boolean overlaps(final VerticalSegment o) {
         return ((getTop() <= o.getTop() && getBottom() > o.getTop())
                 || (getTop() >= o.getTop() && getTop() < o.getBottom()));
+    }
+    
+    public void include(final VerticalSegment o) {
+        start = Math.min(start, o.getTop());
+        end = Math.max(end, o.getBottom());
+    }
+    
+    public void include(final double y) {
+        start = Math.min(start, y);
+        end = Math.max(end, y);
     }
 
     /*
