@@ -134,6 +134,8 @@ algorithm layered(LayeredLayoutProvider) {
     supports edgeBundling.style
     supports edgeBundling.bundleId
     supports edgeBundling.bundleSpacing
+    supports edgeBundling.resolveMergeOverlaps
+    supports edgeBundling.threshold
     supports edgeRouting.sloppySplineRouting
     supports edgeRouting.sloppySplineLayerSpacing
     supports layering.coffmanGraham.layerBound
@@ -593,6 +595,7 @@ group edgeBundling {
         description
             "For manual edge bundling, specifies which bundle this edge is member of."
         targets edges
+        requires strategy == Strategy.MANUAL
     }
     
     advanced option bundleSpacing: float {
@@ -602,6 +605,23 @@ group edgeBundling {
         default = 2.0f
         targets parents
         requires edgeBundling.style == Style.BUNDLE
+    }
+    
+    advanced option resolveMergeOverlaps: boolean {
+        label "Resolve overlaps with merging/splitting on a single line"
+        description
+            ""
+        default = false
+        targets parents
+        requires edgeBundling.style == Style.BUNDLE
+    }
+    
+    advanced option threshold: float {
+        label "Threshold for not bundling edges if the bundle would be too short."
+        description
+            "The bundle must be longer than the given threshold multiplied by the edge-edge-spacing."
+        default = 1.0f
+        targets parents
     }
 }
 
