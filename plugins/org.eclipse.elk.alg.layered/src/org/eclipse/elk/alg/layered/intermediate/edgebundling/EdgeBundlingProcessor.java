@@ -15,6 +15,7 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.stream.Collectors;
@@ -164,17 +165,29 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
      */
     private void bundleEdges(final LGraph layeredGraph) {
         Spacings spacings = layeredGraph.getProperty(InternalProperties.SPACINGS);
+        float bundleThresholdFactor = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_THRESHOLD);
         Style style = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_STYLE);
-        double offset = 0;
+        float offset = 0;
+        boolean resolveOverlaps = false;
         switch (style) {
         case BUNDLE:
-            offset = (double) layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_BUNDLE_SPACING);
+            offset = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_BUNDLE_SPACING);
+            resolveOverlaps = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_RESOLVE_MERGE_OVERLAPS);
             break;
         case SINGLE_LINE:
             break;
         }
 
-        for (Collection<LEdge> bundle : edgeBundles.asMap().values()) {
+        for (Collection<LEdge> edges : edgeBundles.asMap().values()) {
+
+            List<LEdge> bundle = Lists.newLinkedList(edges);
+            Collections.sort(bundle, new Comparator<LEdge>() {
+
+                @Override
+                public int compare(LEdge e1, LEdge e2) {
+                    return Integer.compare(e1.getSource().getIndex(), e2.getSource().getIndex());
+                }
+            });
 
             // TODO add these information to the bundle
             LEdge exampleEdge = bundle.iterator().next();
@@ -203,9 +216,11 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             commonBendPoints.addFirst(0, mergeY);
             commonBendPoints.add(0, splitY);
 
-            System.out.println("bundle " + exampleEdge + " split");
+            System.out.println(
+                    "bundle " + exampleEdge.getSource().getNode() + "->" + exampleEdge.getTarget().getNode() + ":");
+            System.out.println("  split");
             int mergeRank = findFreeSlot(sourceLayer, bundle, mergeY, false);
-            System.out.println("bundle " + exampleEdge + " merge");
+            System.out.println("  merge");
             int splitRank = findFreeSlot(preTargetLayer, bundle, splitY, true);
 
             if (mergeRank != -1 && splitRank != -1) {
@@ -215,17 +230,38 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                 double splitX = calcX(spacings, preTargetLayer, splitRank);
                 commonBendPoints.getLast().x = splitX;
 
+                // Skip bundles which are too short
+                if (Math.abs(mergeX - splitX) < spacings.edgeEdgeSpacing * bundleThresholdFactor) {
+                    continue;
+                }
+
+                // Count how many edges have their start and end y above and below the bundle to calculate the
+                // offsets correctly for non-single-line visualization.
+                int edgesStartAboveBundle = 0;
+                int edgesStartBelowBundle = 0;
+                int edgesEndAboveBundle = 0;
+                int edgesEndBelowBundle = 0;
+
                 // Set the new bendpoints for each edge and add some port specific ones to reach the "merge" point.
-                double currOffset = 0;
                 for (LEdge e : bundle) {
                     KVectorChain bendPoints = e.getBendPoints();
                     bendPoints.clear();
                     bendPoints.addAllAsCopies(0, commonBendPoints);
-                    bendPoints.offset(currOffset, currOffset);
                     double startY = e.getSource().getAbsoluteAnchor().y;
                     bendPoints.addFirst(new KVector(mergeX, startY));
                     double endY = e.getTarget().getAbsoluteAnchor().y;
                     bendPoints.add(new KVector(splitX, endY));
+
+                    if (startY < mergeY) {
+                        edgesStartAboveBundle++;
+                    } else if (startY > mergeY) {
+                        edgesStartBelowBundle++;
+                    }
+                    if (endY < splitY) {
+                        edgesEndAboveBundle++;
+                    } else if (endY > splitY) {
+                        edgesEndBelowBundle++;
+                    }
 
                     // Update Segments
                     SortedSet<VerticalSegment> segments = segmentsByEdge.removeAll(e);
@@ -245,11 +281,60 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                     for (VerticalSegment segment : newSegments) {
                         segmentsByLayerByRank.get(segment.getLayer()).put(segment.getRank(), segment);
                     }
+                }
 
-                    currOffset += offset;
+                // Offset bendpoints if required
+                if (style == Style.BUNDLE) {
+                    int generalOffsetFactor = -bundle.size() / 2;
+                    int startOffsetFactor = edgesStartAboveBundle;
+                    int startOffsetInc = -1;
+                    int endOffsetFactor = edgesEndAboveBundle;
+                    int endOffsetInc = -1;
+                    if (resolveOverlaps && bundle.size() * offset > spacings.edgeEdgeSpacing) {
+                        startOffsetFactor = 0;
+                        startOffsetInc = 0;
+                        endOffsetFactor = 0;
+                        endOffsetInc = 0;
+                    }
+                    for (LEdge edge : bundle) {
+
+                        KVectorChain points = edge.getBendPoints();
+                        int size = points.size();
+                        // assure at least two starting and two ending bendpoints are present.
+                        // SUPPRESS CHECKSTYLE NEXT MagicNumber
+                        assert size >= 4;
+                        points.get(0).add(startOffsetFactor * offset, 0);
+                        points.get(1).add(startOffsetFactor * offset, generalOffsetFactor * offset);
+                        for (int i = 2; i < size - 2; i += 2) {
+                            KVector point = points.get(i);
+                            KVector nextPoint = points.get(i + 1);
+                            if (point.y > nextPoint.y) {
+                                // The edge bends up (left, then right)
+                                point.add(generalOffsetFactor * offset, generalOffsetFactor * offset);
+                                nextPoint.add(generalOffsetFactor * offset, generalOffsetFactor * offset);
+                            } else {
+                                // The edge bends down (right, then left)
+                                point.add(-generalOffsetFactor * offset, generalOffsetFactor * offset);
+                                nextPoint.add(-generalOffsetFactor * offset, generalOffsetFactor * offset);
+                            }
+                        }
+                        points.get(size - 2).add(-endOffsetFactor * offset, generalOffsetFactor * offset);
+                        points.get(size - 1).add(-endOffsetFactor * offset, 0);
+
+                        // update factors
+                        generalOffsetFactor++;
+                        if (startOffsetFactor == 0) {
+                            startOffsetInc *= -1;
+                        }
+                        startOffsetFactor += startOffsetInc;
+                        if (endOffsetFactor == 0) {
+                            endOffsetInc *= -1;
+                        }
+                        endOffsetFactor += endOffsetInc;
+                    }
                 }
             } else {
-                System.out.println("no free slot");
+                System.out.println("  no free slot");
             }
         }
     }
@@ -279,7 +364,7 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         for (LEdge edge : bundle) {
             for (VerticalSegment segment : segmentsByEdge.get(edge)) {
                 if (segment.getLayer() == layer) {
-                    mergeSegment.include(segment);
+                    // mergeSegment.include(segment);
                     LPort port = reverseSearch ? edge.getTarget() : edge.getSource();
                     mergeSegment.include(port.getAbsoluteAnchor().y);
                     break;
@@ -294,7 +379,7 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         if (reverseSearch) {
             Collections.reverse(ranks);
         }
-        System.out.println(ranks);
+        System.out.println("    ranks:" + ranks);
         for (Integer rank : ranks) {
             boolean free = true;
             for (VerticalSegment segment : slotsInThisLayer.get(rank)) {
@@ -304,10 +389,11 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                 }
             }
             if (free) {
-                System.out.println("rank " + rank);
+                System.out.println("    free rank " + rank);
                 return rank;
             }
         }
+        System.out.println("    no free rank");
         return -1;
     }
 
