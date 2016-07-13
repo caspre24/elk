@@ -15,7 +15,6 @@ import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
-import java.util.Iterator;
 import java.util.List;
 import java.util.SortedSet;
 import java.util.stream.Collectors;
@@ -168,26 +167,16 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
         float bundleThresholdFactor = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_THRESHOLD);
         Style style = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_STYLE);
         float offset = 0;
-        boolean resolveOverlaps = false;
+        boolean resolveOverlaps = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_RESOLVE_MERGE_OVERLAPS);
         switch (style) {
         case BUNDLE:
             offset = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_BUNDLE_SPACING);
-            resolveOverlaps = layeredGraph.getProperty(LayeredOptions.EDGE_BUNDLING_RESOLVE_MERGE_OVERLAPS);
             break;
         case SINGLE_LINE:
             break;
         }
 
-        for (Collection<LEdge> edges : edgeBundles.asMap().values()) {
-
-            List<LEdge> bundle = Lists.newLinkedList(edges);
-            Collections.sort(bundle, new Comparator<LEdge>() {
-
-                @Override
-                public int compare(LEdge e1, LEdge e2) {
-                    return Integer.compare(e1.getSource().getIndex(), e2.getSource().getIndex());
-                }
-            });
+        for (Collection<LEdge> bundle : edgeBundles.asMap().values()) {
 
             // TODO add these information to the bundle
             LEdge exampleEdge = bundle.iterator().next();
@@ -285,52 +274,62 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
 
                 // Offset bendpoints if required
                 if (style == Style.BUNDLE) {
-                    int generalOffsetFactor = -bundle.size() / 2;
-                    int startOffsetFactor = edgesStartAboveBundle;
-                    int startOffsetInc = -1;
-                    int endOffsetFactor = edgesEndAboveBundle;
-                    int endOffsetInc = -1;
-                    if (resolveOverlaps && bundle.size() * offset > spacings.edgeEdgeSpacing) {
-                        startOffsetFactor = 0;
-                        startOffsetInc = 0;
-                        endOffsetFactor = 0;
-                        endOffsetInc = 0;
+
+                    List<LEdge> bundleSourceSorted = Lists.newLinkedList(bundle);
+                    Collections.sort(bundleSourceSorted, new Comparator<LEdge>() {
+
+                        @Override
+                        public int compare(final LEdge e1, final LEdge e2) {
+                            return Integer.compare(e1.getSource().getIndex(), e2.getSource().getIndex());
+                        }
+                    });
+
+                    List<LEdge> bundleTargetSorted = Lists.newLinkedList(bundle);
+                    Collections.sort(bundleTargetSorted, new Comparator<LEdge>() {
+
+                        @Override
+                        public int compare(final LEdge e1, final LEdge e2) {
+                            return Integer.compare(e2.getTarget().getIndex(), e1.getTarget().getIndex());
+                        }
+                    });
+
+                    int edgesAboveBundle = bundle.size() / 2;
+                    if (edgesStartAboveBundle < edgesStartBelowBundle) {
+                        edgesAboveBundle--;
                     }
+                    boolean singleLineMerge = resolveOverlaps && Math.max(edgesStartAboveBundle,
+                            Math.max(edgesStartBelowBundle, Math.max(edgesEndAboveBundle, edgesEndBelowBundle)))
+                            * offset > spacings.edgeEdgeSpacing;
                     for (LEdge edge : bundle) {
+
+                        double sourceSideOffset = singleLineMerge ? 0
+                                : Math.abs((bundleSourceSorted.indexOf(edge) - edgesStartAboveBundle) * offset);
+                        double targetSideOffset = singleLineMerge ? 0
+                                : Math.abs((bundleTargetSorted.indexOf(edge) - edgesEndAboveBundle) * offset);
+                        double generalOffset = (bundleSourceSorted.indexOf(edge) - edgesAboveBundle) * offset;
 
                         KVectorChain points = edge.getBendPoints();
                         int size = points.size();
                         // assure at least two starting and two ending bendpoints are present.
                         // SUPPRESS CHECKSTYLE NEXT MagicNumber
                         assert size >= 4;
-                        points.get(0).add(startOffsetFactor * offset, 0);
-                        points.get(1).add(startOffsetFactor * offset, generalOffsetFactor * offset);
+                        points.get(0).add(sourceSideOffset, 0);
+                        points.get(1).add(sourceSideOffset, generalOffset);
                         for (int i = 2; i < size - 2; i += 2) {
                             KVector point = points.get(i);
                             KVector nextPoint = points.get(i + 1);
                             if (point.y > nextPoint.y) {
                                 // The edge bends up (left, then right)
-                                point.add(generalOffsetFactor * offset, generalOffsetFactor * offset);
-                                nextPoint.add(generalOffsetFactor * offset, generalOffsetFactor * offset);
+                                point.add(generalOffset, generalOffset);
+                                nextPoint.add(generalOffset, generalOffset);
                             } else {
                                 // The edge bends down (right, then left)
-                                point.add(-generalOffsetFactor * offset, generalOffsetFactor * offset);
-                                nextPoint.add(-generalOffsetFactor * offset, generalOffsetFactor * offset);
+                                point.add(-generalOffset, generalOffset);
+                                nextPoint.add(-generalOffset, generalOffset);
                             }
                         }
-                        points.get(size - 2).add(-endOffsetFactor * offset, generalOffsetFactor * offset);
-                        points.get(size - 1).add(-endOffsetFactor * offset, 0);
-
-                        // update factors
-                        generalOffsetFactor++;
-                        if (startOffsetFactor == 0) {
-                            startOffsetInc *= -1;
-                        }
-                        startOffsetFactor += startOffsetInc;
-                        if (endOffsetFactor == 0) {
-                            endOffsetInc *= -1;
-                        }
-                        endOffsetFactor += endOffsetInc;
+                        points.get(size - 2).add(-targetSideOffset, generalOffset);
+                        points.get(size - 1).add(-targetSideOffset, 0);
                     }
                 }
             } else {
@@ -359,8 +358,6 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
 
         // build merge segment
         VerticalSegment mergeSegment = new VerticalSegment(mergeY, mergeY);
-        // mergeSegment.setStart(mergeY);
-        // mergeSegment.setEnd(mergeY);
         for (LEdge edge : bundle) {
             for (VerticalSegment segment : segmentsByEdge.get(edge)) {
                 if (segment.getLayer() == layer) {

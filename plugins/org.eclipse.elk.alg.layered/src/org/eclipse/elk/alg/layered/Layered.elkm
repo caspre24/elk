@@ -611,7 +611,7 @@ group edgeBundling {
         label "Resolve overlaps with merging/splitting on a single line"
         description
             ""
-        default = false
+        default = true
         targets parents
         requires edgeBundling.style == Style.BUNDLE
     }
