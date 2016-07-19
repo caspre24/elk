@@ -145,14 +145,32 @@ public class VerticalSegment implements Comparable<VerticalSegment> {
                 || (getTop() >= o.getTop() && getTop() < o.getBottom()));
     }
     
-    public void include(final VerticalSegment o) {
-        start = Math.min(start, o.getTop());
-        end = Math.max(end, o.getBottom());
+//    public void include(final VerticalSegment o) {
+//        start = Math.min(start, o.getTop());
+//        end = Math.max(end, o.getBottom());
+//    }
+    
+    /**
+     * @param y
+     */
+    public void include(final double y) {
+        if (start < end) {
+            start = Math.min(start, y);
+            end = Math.max(end, y);
+        } else {
+            start = Math.max(start, y);
+            end = Math.min(end, y);
+        }
     }
     
-    public void include(final double y) {
-        start = Math.min(start, y);
-        end = Math.max(end, y);
+    public void enlarge(final double d) {
+        if (start < end) {
+            start -= d;
+            end += d;
+        } else {
+            start += d;
+            end -= d;
+        }
     }
 
     /*

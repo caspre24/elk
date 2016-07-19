@@ -208,9 +208,9 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
             System.out.println(
                     "bundle " + exampleEdge.getSource().getNode() + "->" + exampleEdge.getTarget().getNode() + ":");
             System.out.println("  split");
-            int mergeRank = findFreeSlot(sourceLayer, bundle, mergeY, false);
+            int mergeRank = findFreeSlot(sourceLayer, bundle, mergeY, false, spacings);
             System.out.println("  merge");
-            int splitRank = findFreeSlot(preTargetLayer, bundle, splitY, true);
+            int splitRank = findFreeSlot(preTargetLayer, bundle, splitY, true, spacings);
 
             if (mergeRank != -1 && splitRank != -1) {
 
@@ -227,8 +227,10 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                 // Count how many edges have their start and end y above and below the bundle to calculate the
                 // offsets correctly for non-single-line visualization.
                 int edgesStartAboveBundle = 0;
+                int edgesStartOnBundle = 0;
                 int edgesStartBelowBundle = 0;
                 int edgesEndAboveBundle = 0;
+                int edgesEndOnBundle = 0;
                 int edgesEndBelowBundle = 0;
 
                 // Set the new bendpoints for each edge and add some port specific ones to reach the "merge" point.
@@ -245,11 +247,15 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                         edgesStartAboveBundle++;
                     } else if (startY > mergeY) {
                         edgesStartBelowBundle++;
+                    } else {
+                        edgesStartOnBundle++;
                     }
                     if (endY < splitY) {
                         edgesEndAboveBundle++;
                     } else if (endY > splitY) {
                         edgesEndBelowBundle++;
+                    } else {
+                        edgesEndOnBundle++;
                     }
 
                     // Update Segments
@@ -293,7 +299,22 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                         }
                     });
 
-                    int edgesAboveBundle = bundle.size() / 2;
+                    int bundleSize = bundle.size();
+                    int edgesAboveBundle = bundleSize / 2;
+                    int edgesAboveBundleFirstHorizontalSegment = edgesAboveBundle;
+                    int edgesAboveBundleLastHorizontalSegment = edgesAboveBundle;
+
+                    if (edgesStartAboveBundle == 0 && edgesStartOnBundle >= 1) {
+                        edgesAboveBundleFirstHorizontalSegment = 0;
+                    } else if (edgesStartBelowBundle == 0 && edgesStartOnBundle == 1) {
+                        edgesAboveBundleFirstHorizontalSegment = bundleSize;
+                    }
+                    if (edgesEndAboveBundle == 0 && edgesEndOnBundle >= 1) {
+                        edgesAboveBundleLastHorizontalSegment = 0;
+                    } else if (edgesEndBelowBundle == 0 && edgesEndOnBundle == 1) {
+                        edgesAboveBundleLastHorizontalSegment = bundleSize;
+                    }
+
                     if (edgesStartAboveBundle < edgesStartBelowBundle) {
                         edgesAboveBundle--;
                     }
@@ -307,29 +328,48 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                         double targetSideOffset = singleLineMerge ? 0
                                 : Math.abs((bundleTargetSorted.indexOf(edge) - edgesEndAboveBundle) * offset);
                         double generalOffset = (bundleSourceSorted.indexOf(edge) - edgesAboveBundle) * offset;
+                        double firstSegmentYOffset =
+                                (bundleSourceSorted.indexOf(edge) - edgesAboveBundleFirstHorizontalSegment) * offset;
+                        double lastSegmentYOffset =
+                                (bundleSourceSorted.indexOf(edge) - edgesAboveBundleLastHorizontalSegment) * offset;
 
                         KVectorChain points = edge.getBendPoints();
                         int size = points.size();
                         // assure at least two starting and two ending bendpoints are present.
-                        // SUPPRESS CHECKSTYLE NEXT MagicNumber
+                        // CHECKSTYLEOFF MagicNumber
                         assert size >= 4;
-                        points.get(0).add(sourceSideOffset, 0);
-                        points.get(1).add(sourceSideOffset, generalOffset);
-                        for (int i = 2; i < size - 2; i += 2) {
-                            KVector point = points.get(i);
-                            KVector nextPoint = points.get(i + 1);
-                            if (point.y > nextPoint.y) {
-                                // The edge bends up (left, then right)
-                                point.add(generalOffset, generalOffset);
-                                nextPoint.add(generalOffset, generalOffset);
+                        if (size == 4) {
+                            // Only 4 bendpoint, that means, first and last horizontal segment are identical.
+                            points.get(0).add(sourceSideOffset, 0);
+                            if (edgesAboveBundleFirstHorizontalSegment != edgesAboveBundle) {
+                                points.get(1).add(sourceSideOffset, firstSegmentYOffset);
+                                points.get(2).add(-targetSideOffset, firstSegmentYOffset);
                             } else {
-                                // The edge bends down (right, then left)
-                                point.add(-generalOffset, generalOffset);
-                                nextPoint.add(-generalOffset, generalOffset);
+                                points.get(1).add(sourceSideOffset, lastSegmentYOffset);
+                                points.get(2).add(-targetSideOffset, lastSegmentYOffset);
                             }
+                            points.get(3).add(-targetSideOffset, 0);
+                        } else {
+                            // More than 4 bendpoints, first and last horizontal segments can be moved independently.
+                            points.get(0).add(sourceSideOffset, 0);
+                            points.get(1).add(sourceSideOffset, firstSegmentYOffset);
+                            for (int i = 2; i < size - 2; i += 2) {
+                                KVector point = points.get(i);
+                                KVector nextPoint = points.get(i + 1);
+                                if (point.y > nextPoint.y) {
+                                    // The edge bends up (left, then right)
+                                    point.add(generalOffset, i == 2 ? firstSegmentYOffset : generalOffset);
+                                    nextPoint.add(generalOffset, i == size - 4 ? lastSegmentYOffset : generalOffset);
+                                } else {
+                                    // The edge bends down (right, then left)
+                                    point.add(-generalOffset, i == 2 ? firstSegmentYOffset : generalOffset);
+                                    nextPoint.add(-generalOffset, i == size - 4 ? lastSegmentYOffset : generalOffset);
+                                }
+                            }
+                            points.get(size - 2).add(-targetSideOffset, lastSegmentYOffset);
+                            points.get(size - 1).add(-targetSideOffset, 0);
                         }
-                        points.get(size - 2).add(-targetSideOffset, generalOffset);
-                        points.get(size - 1).add(-targetSideOffset, 0);
+                        // CHECKSTYLEON MagicNumber
                     }
                 }
             } else {
@@ -351,10 +391,11 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
     /**
      * @param layer
      * @param bundle
+     * @param spacings 
      * @return
      */
     private int findFreeSlot(final Layer layer, final Collection<LEdge> bundle, final double mergeY,
-            final boolean reverseSearch) {
+            final boolean reverseSearch, final Spacings spacings) {
 
         // build merge segment
         VerticalSegment mergeSegment = new VerticalSegment(mergeY, mergeY);
@@ -368,6 +409,8 @@ public class EdgeBundlingProcessor implements ILayoutProcessor {
                 }
             }
         }
+        
+        mergeSegment.enlarge(spacings.edgeEdgeSpacing);
 
         // find a free slot
         TreeMultimap<Integer, VerticalSegment> slotsInThisLayer = segmentsByLayerByRank.get(layer);
