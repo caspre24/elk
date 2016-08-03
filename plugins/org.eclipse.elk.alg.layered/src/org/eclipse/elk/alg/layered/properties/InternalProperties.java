@@ -12,7 +12,6 @@ package org.eclipse.elk.alg.layered.properties;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.Random;
 import java.util.Set;
@@ -25,8 +24,6 @@ import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.graph.LLabel;
 import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.LPort;
-import org.eclipse.elk.alg.layered.graph.Layer;
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.VerticalSegment;
 import org.eclipse.elk.alg.layered.p5edges.splines.ConnectedSelfLoopComponent;
 import org.eclipse.elk.alg.layered.p5edges.splines.LoopSide;
 import org.eclipse.elk.core.math.KVector;
@@ -375,9 +372,8 @@ public final class InternalProperties {
      */
     public static final IProperty<Boolean> PARTITION_DUMMY = new Property<Boolean>(
             "partitionConstraint", false);
-
-    public static final IProperty<List<VerticalSegment>> SEGMENTS =
-            new Property<List<VerticalSegment>>("segments", new LinkedList<VerticalSegment>());
+    
+    public static final IProperty<LPort> BUNDLED_PORT = new Property<LPort>("bundledPort");
     
     /**
      * Hidden default constructor.

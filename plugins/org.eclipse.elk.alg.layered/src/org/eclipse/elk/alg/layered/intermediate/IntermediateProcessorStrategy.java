@@ -12,7 +12,6 @@ package org.eclipse.elk.alg.layered.intermediate;
 
 import org.eclipse.elk.alg.layered.ILayoutProcessor;
 import org.eclipse.elk.alg.layered.intermediate.compaction.HorizontalGraphCompactor;
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor;
 import org.eclipse.elk.alg.layered.intermediate.greedyswitch.GreedySwitchProcessor;
 
 /**
@@ -142,7 +141,7 @@ public enum IntermediateProcessorStrategy {
     /** Removes dummy nodes which were introduced for center labels. */
     LABEL_DUMMY_REMOVER,
     /** Bundles edges. */
-    EDGE_BUNDLING_PROCESSOR,
+//    EDGE_BUNDLING_PROCESSOR,
     /** Moves nodes and vertical edge segments in horizontal direction to close some gaps that are a
       * result of the layering. */
     HORIZONTAL_COMPACTOR,
@@ -191,8 +190,8 @@ public enum IntermediateProcessorStrategy {
         case EDGE_AND_LAYER_CONSTRAINT_EDGE_REVERSER:
             return new EdgeAndLayerConstraintEdgeReverser();
 
-        case EDGE_BUNDLING_PROCESSOR:
-            return new EdgeBundlingProcessor();
+//        case EDGE_BUNDLING_PROCESSOR:
+//            return new EdgeBundlingProcessor();
 
         case END_LABEL_PROCESSOR:
             return new EndLabelProcessor();

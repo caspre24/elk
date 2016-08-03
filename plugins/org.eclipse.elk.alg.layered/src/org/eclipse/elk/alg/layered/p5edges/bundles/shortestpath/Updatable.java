@@ -8,7 +8,7 @@
  * Contributors:
  *    Kiel University - initial API and implementation
  *******************************************************************************/
-package org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath;
+package org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath;
 
 /**
  * @author Kiel University

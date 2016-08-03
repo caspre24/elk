@@ -8,7 +8,7 @@
  * Contributors:
  *    Kiel University - initial API and implementation
  *******************************************************************************/
-package org.eclipse.elk.alg.layered.intermediate.edgebundling;
+package org.eclipse.elk.alg.layered.p5edges.bundles;
 
 import java.io.FileWriter;
 import java.io.IOException;
@@ -16,8 +16,8 @@ import java.text.DecimalFormat;
 import java.util.HashSet;
 import java.util.List;
 
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Edge;
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.shortestpath.Node;
+import org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath.Edge;
+import org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath.Node;
 import org.eclipse.elk.core.math.KVector;
 
 /**

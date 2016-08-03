@@ -15,13 +15,13 @@ import org.eclipse.elk.alg.layered.LayeredLayoutProvider
 import org.eclipse.elk.alg.layered.intermediate.NodePromotionStrategy
 import org.eclipse.elk.alg.layered.intermediate.compaction.ConstraintCalculationStrategy
 import org.eclipse.elk.alg.layered.intermediate.compaction.GraphCompactionStrategy
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor.Strategy
-import org.eclipse.elk.alg.layered.intermediate.edgebundling.EdgeBundlingProcessor.Style
 import org.eclipse.elk.alg.layered.p1cycles.CycleBreakingStrategy
 import org.eclipse.elk.alg.layered.p2layers.LayeringStrategy
 import org.eclipse.elk.alg.layered.p3order.CrossingMinimizationStrategy
 import org.eclipse.elk.alg.layered.p4nodes.NodePlacementStrategy
 import org.eclipse.elk.alg.layered.p4nodes.bk.EdgeStraighteningStrategy
+import org.eclipse.elk.alg.layered.p5edges.bundles.BundleHandling.Strategy
+import org.eclipse.elk.alg.layered.p5edges.bundles.BundleHandling.Style
 import org.eclipse.elk.core.options.Direction
 import org.eclipse.elk.core.options.EdgeLabelPlacementStrategy
 import org.eclipse.elk.core.options.EdgeRouting
