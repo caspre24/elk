@@ -14,7 +14,7 @@ import java.util.List;
 
 import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.p4nodes.LinearSegmentsNodePlacer.LinearSegment;
-import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.HyperNode;
+import org.eclipse.elk.alg.layered.p5edges.HyperNodeUtils.HyperNode;
 
 /**
  * A utility class for debug output of KLay Layered.

@@ -20,12 +20,12 @@ import java.util.List;
 import org.eclipse.elk.alg.layered.graph.LEdge;
 import org.eclipse.elk.alg.layered.graph.LGraph;
 import org.eclipse.elk.alg.layered.graph.LNode;
+import org.eclipse.elk.alg.layered.graph.LNode.NodeType;
 import org.eclipse.elk.alg.layered.graph.LPort;
 import org.eclipse.elk.alg.layered.graph.Layer;
-import org.eclipse.elk.alg.layered.graph.LNode.NodeType;
 import org.eclipse.elk.alg.layered.p4nodes.LinearSegmentsNodePlacer.LinearSegment;
-import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.Dependency;
-import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.HyperNode;
+import org.eclipse.elk.alg.layered.p5edges.HyperNodeUtils.Dependency;
+import org.eclipse.elk.alg.layered.p5edges.HyperNodeUtils.HyperNode;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
 
 /**

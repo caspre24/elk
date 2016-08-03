@@ -316,9 +316,9 @@ final class GraphConfigurator {
         }
         
         // Bundle edges
-        if (lgraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY) != EdgeBundlingProcessor.Strategy.NONE) {
-            configuration.addAfterPhase5(IntermediateProcessorStrategy.EDGE_BUNDLING_PROCESSOR);
-        }
+//        if (lgraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY) != EdgeBundlingProcessor.Strategy.NONE) {
+//            configuration.addAfterPhase5(IntermediateProcessorStrategy.EDGE_BUNDLING_PROCESSOR);
+//        }
 
         return configuration;
     }
