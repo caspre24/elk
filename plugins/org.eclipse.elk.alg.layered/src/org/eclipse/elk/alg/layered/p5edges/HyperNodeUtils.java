@@ -52,6 +52,10 @@ public final class HyperNodeUtils {
         private int mark;
         /** the rank determines the horizontal distance to the preceding layer. */
         public int rank;
+        /** the x position. */
+        public double x;
+        /** the width of the associated bundle. */
+        public double width;
         /** vertical starting position of this hypernode. */
         public double start = Double.NaN;
         /** vertical ending position of this hypernode. */

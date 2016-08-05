@@ -21,9 +21,7 @@ import org.eclipse.elk.alg.layered.graph.LGraphUtil;
 import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.Layer;
 import org.eclipse.elk.alg.layered.intermediate.IntermediateProcessorStrategy;
-import org.eclipse.elk.alg.layered.p5edges.bundles.ActiveBundleHandler;
 import org.eclipse.elk.alg.layered.p5edges.bundles.BundleHandling;
-import org.eclipse.elk.alg.layered.p5edges.bundles.BundleHandling.Strategy;
 import org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler;
 import org.eclipse.elk.alg.layered.properties.GraphProperties;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
@@ -199,11 +197,6 @@ public final class OrthogonalEdgeRouter implements ILayoutPhase {
         Spacings spacings = layeredGraph.getProperty(InternalProperties.SPACINGS);
         boolean debug = layeredGraph.getProperty(LayeredOptions.DEBUG_MODE);
 
-        // Handle bundled routing
-        IBundleHandler bundleHandler = BundleHandling.createHandler(layeredGraph);
-        bundleHandler.findBundles();
-        bundleHandler.calcShortestEdges();
-
         // Prepare for iteration!
         OrthogonalRoutingGenerator routingGenerator =
                 new OrthogonalRoutingGenerator(OrthogonalRoutingGenerator.RoutingDirection.WEST_TO_EAST,
@@ -216,6 +209,12 @@ public final class OrthogonalEdgeRouter implements ILayoutPhase {
         List<LNode> rightLayerNodes = null;
         int leftLayerIndex = -1;
         int rightLayerIndex = -1;
+
+        // Prepare bundled routing
+        IBundleHandler bundleHandler =
+                BundleHandling.createHandler(layeredGraph, routingGenerator.getRoutingStrategy());
+        bundleHandler.findBundles();
+        bundleHandler.calcShortestEdges();
 
         // Iterate!
         do {
@@ -264,6 +263,11 @@ public final class OrthogonalEdgeRouter implements ILayoutPhase {
             leftLayerNodes = rightLayerNodes;
             leftLayerIndex = rightLayerIndex;
         } while (rightLayer != null);
+        
+        // Handle bundled routing
+        bundleHandler.mergeHypernodes(routingGenerator);
+        bundleHandler.shiftHypernodes();
+        
 
         layeredGraph.getSize().x = xpos;
 

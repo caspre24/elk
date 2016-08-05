@@ -12,7 +12,8 @@ package org.eclipse.elk.alg.layered.p5edges.bundles;
 
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.Comparator;
 import java.util.Iterator;
 import java.util.LinkedList;
 import java.util.List;
@@ -26,18 +27,29 @@ import org.eclipse.elk.alg.layered.graph.LNode;
 import org.eclipse.elk.alg.layered.graph.LNode.NodeType;
 import org.eclipse.elk.alg.layered.graph.LPort;
 import org.eclipse.elk.alg.layered.graph.Layer;
+import org.eclipse.elk.alg.layered.networksimplex.NEdge;
+import org.eclipse.elk.alg.layered.networksimplex.NGraph;
+import org.eclipse.elk.alg.layered.networksimplex.NNode;
+import org.eclipse.elk.alg.layered.networksimplex.NetworkSimplex;
+import org.eclipse.elk.alg.layered.p5edges.HyperNodeUtils;
 import org.eclipse.elk.alg.layered.p5edges.HyperNodeUtils.HyperNode;
+import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator;
 import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.IRoutingDirectionStrategy;
+import org.eclipse.elk.alg.layered.p5edges.bundles.scanline.ScanlineUtils;
 import org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath.AstarAlgorithm;
 import org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath.Edge;
 import org.eclipse.elk.alg.layered.p5edges.bundles.shortestpath.Node;
 import org.eclipse.elk.alg.layered.properties.InternalProperties;
 import org.eclipse.elk.alg.layered.properties.LayeredOptions;
+import org.eclipse.elk.alg.layered.properties.Spacings;
+import org.eclipse.elk.core.comments.AbstractNormalizedHeuristic.NormalizationFunction;
 import org.eclipse.elk.core.math.KVector;
+import org.eclipse.elk.core.util.BasicProgressMonitor;
 
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.HashMultimap;
 import com.google.common.collect.Iterables;
+import com.google.common.collect.LinkedListMultimap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
@@ -56,63 +68,56 @@ public class ActiveBundleHandler implements IBundleHandler {
     private static final int X_TARGET_PORTS = 80;
     private static final int X_GOAL = 100;
 
-    private LGraph lGraph;
-    private HashMap<Layer, Multimap<Integer, LEdge>> bundlesPerLayer;
-    private Multimap<Integer, LEdge> firstEdgesPerBundle;
-    private Table<Integer, Layer, LEdge> shortestEdges;
-    private int maxBundleId = -1;
+    private final LGraph lGraph;
+    private final Spacings spacings;
+    private final IRoutingDirectionStrategy routingStrategy;
+    private final Float bundleSpacing;
+
+    private final Map<Layer, Multimap<Integer, LEdge>> bundlesPerLayer;
+    private final Multimap<Integer, LEdge> firstEdgesPerBundle;
+    private final Table<Integer, Layer, LEdge> shortestEdgePerBundlePerLayer;
+    private final Multimap<Layer, HyperNode> hyperNodesPerLayer;
+    private final Map<Layer, Map<LPort, HyperNode>> portToHypernodesPerLayer;
+    private final Map<HyperNode, List<LEdge>> hyperNodeToBundle;
+    
+    
+    private static final Comparator<LEdge> EDGE_BY_SRC_PORT_ID_COMPARATOR = new Comparator<LEdge>() {
+
+        @Override
+        public int compare(final LEdge e1, final LEdge e2) {
+            return Integer.compare(getOriginEdge(e1).getSource().getIndex(), getOriginEdge(e2).getSource().getIndex());
+        }
+    };
 
     /**
      * @param layeredGraph
      */
-    public ActiveBundleHandler(final LGraph lGraph) {
+    public ActiveBundleHandler(final LGraph lGraph, final IRoutingDirectionStrategy routingStrategy) {
         this.lGraph = lGraph;
+        spacings = lGraph.getProperty(InternalProperties.SPACINGS);
+        this.routingStrategy = routingStrategy;
+        bundleSpacing = lGraph.getProperty(LayeredOptions.EDGE_BUNDLING_BUNDLE_SPACING);
+
         bundlesPerLayer = Maps.newHashMap();
-        firstEdgesPerBundle = HashMultimap.create();
-        shortestEdges = HashBasedTable.create();
+        firstEdgesPerBundle = LinkedListMultimap.create();
+        shortestEdgePerBundlePerLayer = HashBasedTable.create();
+        hyperNodesPerLayer = LinkedListMultimap.create();
+        portToHypernodesPerLayer = Maps.newHashMap();
+        hyperNodeToBundle = Maps.newIdentityHashMap();
     }
 
     /**
-     * @param layer
-     * @param bundleId
-     * @param edge
-     */
-    public void putEdge(final Layer layer, final int bundleId, final LEdge edge) {
-        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
-        if (bundles == null) {
-            bundles = HashMultimap.create();
-            bundlesPerLayer.put(layer, bundles);
-        }
-        bundles.put(bundleId, edge);
-    }
-
-    /**
-     * @param layer
-     * @param bundleId
-     * @param edges
-     * @param edge
-     */
-    public void putAllEdges(final Layer layer, final int bundleId, final Iterable<? extends LEdge> edges) {
-        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
-        if (bundles == null) {
-            bundles = HashMultimap.create();
-            bundlesPerLayer.put(layer, bundles);
-        }
-        bundles.putAll(bundleId, edges);
-    }
-
-    /**
-     * @param layer
-     * @param bundleId
-     * @return
+     * @param e2
      * @return
      */
-    public Collection<LEdge> getEdges(final Layer layer, final int bundleId) {
-        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
-        if (bundles != null) {
-            return bundles.get(bundleId);
+    private static LEdge getOriginEdge(final LEdge edge) {
+        LEdge current = edge;
+        LNode source = current.getSource().getNode();
+        while (source.getType() != NodeType.NORMAL) {
+            current = source.getIncomingEdges().iterator().next();
+            source = current.getSource().getNode();
         }
-        return null;
+        return current;
     }
 
     /*
@@ -136,7 +141,61 @@ public class ActiveBundleHandler implements IBundleHandler {
         }
     }
 
-    /* (non-Javadoc)
+    /**
+     * Iterate through all edges and sort them into bundles according to their bundle id.
+     * 
+     * @param lGraph
+     */
+    private void groupAndSplitEdgesManually() {
+        for (Layer layer : lGraph) {
+            for (LNode node : layer.getNodes()) {
+                for (LEdge edge : node.getOutgoingEdges()) {
+                    // Sort marked edges into bundles.
+                    Integer bundleId = retrieveBundleId(edge);
+                    if (bundleId != null) {
+                        System.out.println("found edge " + edge + " for bundle " + bundleId);
+                        putEdge(layer, bundleId, edge);
+                        if (edge.getSource().getNode().getType() == NodeType.NORMAL) {
+                            firstEdgesPerBundle.put(bundleId, edge);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * @param lGraph
+     */
+    private void groupAndSplitEdgesAutomatically() {
+        int bundleId = 0;
+        ListIterator<Layer> iterLayers = lGraph.getLayers().listIterator();
+        while (iterLayers.hasNext()) {
+            Layer layer = iterLayers.next();
+            for (LNode node : layer.getNodes()) {
+                if (node.getType() == NodeType.NORMAL) {
+                    HashMultimap<LNode, LEdge> possibleBundles = HashMultimap.create();
+                    for (LEdge edge : node.getOutgoingEdges()) {
+                        LNode target = getRealTarget(edge).getNode();
+                        possibleBundles.put(target, edge);
+                    }
+                    for (Entry<LNode, Collection<LEdge>> bundle : possibleBundles.asMap().entrySet()) {
+                        Collection<LEdge> edges = bundle.getValue();
+                        if (edges.size() > 1) {
+                            System.out.println(
+                                    "  bundle found: " + node + " --> " + bundle.getKey() + " id: " + bundleId);
+                            firstEdgesPerBundle.putAll(bundleId, edges);
+                            putAllEdgesRecursive(bundleId++, edges);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
      * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#calcShortestEdges()
      */
     @Override
@@ -145,69 +204,11 @@ public class ActiveBundleHandler implements IBundleHandler {
             Integer bundleId = bundle.getKey();
             Collection<LEdge> edges = bundle.getValue();
             LEdge shortestEdge = findShortestEdge(edges, bundleId);
-            shortestEdges.put(bundleId, shortestEdge.getSource().getNode().getLayer(), shortestEdge);
+            shortestEdgePerBundlePerLayer.put(bundleId, shortestEdge.getSource().getNode().getLayer(), shortestEdge);
             while (shortestEdge.getTarget().getNode().getType() != NodeType.NORMAL) {
                 shortestEdge = getSuccessorEdge(shortestEdge);
-                shortestEdges.put(bundleId, shortestEdge.getSource().getNode().getLayer(), shortestEdge);
-            }
-        }
-    }
-
-    /*
-     * (non-Javadoc)
-     * 
-     * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#mergeHypernodes(java.util.List)
-     */
-    @Override
-    public void mergeHypernodes(final List<HyperNode> hyperNodes, final Map<LPort, HyperNode> portToHyperNodeMap,
-            final IRoutingDirectionStrategy routingStrategy, final int sourceLayerIndex) {
-        if (sourceLayerIndex < 0) {
-            return;
-        }
-        Layer layer = lGraph.getLayers().get(sourceLayerIndex);
-        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
-        if (bundles != null) {
-            for (Integer bundleId : bundles.keySet()) {
-                HyperNode bundleHyperNode = portToHyperNodeMap.get(shortestEdges.get(bundleId, layer).getSource());
-//                        retrieveHypernodeForBundle(bundles.get(bundleId), portToHyperNodeMap);
-                for (LEdge edge : bundles.get(bundleId)) {
-                    HyperNode oldHyperNode = portToHyperNodeMap.get(edge.getSource());
-                    if (oldHyperNode != bundleHyperNode) {
-                        if (oldHyperNode != null) {
-                            removeByIdentity(hyperNodes, oldHyperNode);
-                            for (LPort port : oldHyperNode.ports) {
-                                portToHyperNodeMap.remove(port);
-                            }
-                        }
-                        // bundleHyperNode.addPortPositions(edge.getSource(), portToHyperNodeMap, routingStrategy);
-                        bundleHyperNode.addBundledPortPositions(edge, shortestEdges.get(bundleId, layer),
-                                portToHyperNodeMap, routingStrategy);
-                    }
-                }
-            }
-        }
-    }
-    
-    @Override
-    public KVector getBundledAnchor(final LPort port) {
-        LPort bundledPort = port.getProperty(InternalProperties.BUNDLED_PORT);
-        if (bundledPort != null) {
-            return bundledPort.getAbsoluteAnchor();
-        }
-        return port.getAbsoluteAnchor();
-    }
-
-    /**
-     * @param hyperNodes
-     * @param oldHyperNode
-     */
-    private void removeByIdentity(final List<HyperNode> hyperNodes, final HyperNode hyperNodeToRemove) {
-        Iterator<HyperNode> iter = hyperNodes.iterator();
-        while (iter.hasNext()) {
-            HyperNode hyperNode = iter.next();
-            if (hyperNode == hyperNodeToRemove) {
-                iter.remove();
-                return;
+                shortestEdgePerBundlePerLayer.put(bundleId, shortestEdge.getSource().getNode().getLayer(),
+                        shortestEdge);
             }
         }
     }
@@ -314,47 +315,49 @@ public class ActiveBundleHandler implements IBundleHandler {
         return new Edge(sourceNode, targetNode, weight + (X_TARGET_EDGES - X_SOURCE_EDGES));
     }
 
-    /**
-     * @param edges
-     * @param portToHyperNodeMap
-     * @return
-     */
-    private HyperNode retrieveHypernodeForBundle(final Collection<LEdge> edges,
-            final Map<LPort, HyperNode> portToHyperNodeMap) {
-
-        HyperNode hyperNode = null;
-        Iterator<LEdge> iterEdges = edges.iterator();
-        while (iterEdges.hasNext()) {
-            LEdge edge = iterEdges.next();
-            hyperNode = portToHyperNodeMap.get(edge.getSource());
-            if (hyperNode == null) {
-                hyperNode = portToHyperNodeMap.get(edge.getTarget());
-            }
-            if (hyperNode != null) {
-                return hyperNode;
-            }
-        }
-        throw new IllegalStateException("No hypernode found for any bundled ports.\nShould never end up here!");
-    }
-
-    /**
-     * Iterate through all edges and sort them into bundles according to their bundle id.
+    /*
+     * (non-Javadoc)
      * 
-     * @param lGraph
+     * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#mergeHypernodes()
      */
-    private void groupAndSplitEdgesManually() {
+    @Override
+    public void mergeHypernodes(final OrthogonalRoutingGenerator routingGenerator) {
         for (Layer layer : lGraph) {
-            for (LNode node : layer.getNodes()) {
-                for (LEdge edge : node.getOutgoingEdges()) {
-                    // Sort marked edges into bundles.
-                    Integer bundleId = retrieveBundleId(edge);
-                    if (bundleId != null) {
-                        System.out.println("found edge " + edge + " for bundle " + bundleId);
-                        putEdge(layer, bundleId, edge);
-                        if (edge.getSource().getNode().getType() == NodeType.NORMAL) {
-                            firstEdgesPerBundle.put(bundleId, edge);
+            List<HyperNode> hyperNodes = Lists.newLinkedList(hyperNodesPerLayer.removeAll(layer));
+            mergeSingleLayerHypernodes(hyperNodes, portToHypernodesPerLayer.get(layer), layer);
+            HyperNodeUtils.clearDependencies(hyperNodes);
+            HyperNodeUtils.createDependencies(hyperNodes, routingGenerator.getConflictThreshold());
+            HyperNodeUtils.breakCycles(hyperNodes, lGraph.getProperty(InternalProperties.RANDOM));
+            HyperNodeUtils.topologicalNumbering(hyperNodes);
+            hyperNodesPerLayer.putAll(layer, hyperNodes);
+        }
+    }
+
+    private void mergeSingleLayerHypernodes(final Collection<HyperNode> hyperNodes,
+            final Map<LPort, HyperNode> portToHyperNodeMap, final Layer layer) {
+
+        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
+        if (bundles != null) {
+            for (Integer bundleId : bundles.keySet()) {
+                HyperNode bundleHyperNode =
+                        portToHyperNodeMap.get(shortestEdgePerBundlePerLayer.get(bundleId, layer).getSource());
+                Collection<LEdge> bundle = bundles.get(bundleId);
+                bundleHyperNode.width = bundle.size() * bundleSpacing;
+                List<LEdge> sortedBundle = Lists.newLinkedList(bundle);
+                Collections.sort(sortedBundle, EDGE_BY_SRC_PORT_ID_COMPARATOR);
+                hyperNodeToBundle.put(bundleHyperNode, sortedBundle);
+                for (LEdge edge : bundle) {
+                    HyperNode oldHyperNode = portToHyperNodeMap.get(edge.getSource());
+                    if (oldHyperNode != bundleHyperNode) {
+                        if (oldHyperNode != null) {
+                            removeByIdentity(hyperNodes, oldHyperNode);
+                            for (LPort port : oldHyperNode.ports) {
+                                portToHyperNodeMap.remove(port);
+                            }
                         }
-                        maxBundleId = Math.max(maxBundleId, bundleId);
+                        bundleHyperNode.addBundledPortPositions(edge,
+                                shortestEdgePerBundlePerLayer.get(bundleId, layer), portToHyperNodeMap,
+                                routingStrategy);
                     }
                 }
             }
@@ -362,37 +365,223 @@ public class ActiveBundleHandler implements IBundleHandler {
     }
 
     /**
-     * @param lGraph
+     * @param hyperNodes
+     * @param oldHyperNode
      */
-    private void groupAndSplitEdgesAutomatically() {
-        int bundleId = 0;
-        ListIterator<Layer> iterLayers = lGraph.getLayers().listIterator();
-        while (iterLayers.hasNext()) {
-            Layer layer = iterLayers.next();
-            for (LNode node : layer.getNodes()) {
-                if (node.getType() == NodeType.NORMAL) {
-                    HashMultimap<LNode, LEdge> possibleBundles = HashMultimap.create();
-                    for (LEdge edge : node.getOutgoingEdges()) {
-                        LNode target = getRealTarget(edge).getNode();
-                        //TODO is this necessary?
-//                        if (target.getType() != NodeType.NORMAL) {
-//                            continue;
-//                        }
-                        possibleBundles.put(target, edge);
-                    }
-                    for (Entry<LNode, Collection<LEdge>> bundle : possibleBundles.asMap().entrySet()) {
-                        Collection<LEdge> edges = bundle.getValue();
-                        if (edges.size() > 1) {
-                            System.out.println("  bundle found: " + node + " --> " + bundle.getKey() + " id: " + bundleId);
-                            firstEdgesPerBundle.putAll(bundleId, edges);
-                            putAllEdgesRecursive(bundleId++, edges);
-                            // putAllEdges(layer, bundleId++, edges);
-                        }
+    private void removeByIdentity(final Collection<HyperNode> hyperNodes, final HyperNode hyperNodeToRemove) {
+        Iterator<HyperNode> iter = hyperNodes.iterator();
+        while (iter.hasNext()) {
+            HyperNode hyperNode = iter.next();
+            if (hyperNode == hyperNodeToRemove) {
+                iter.remove();
+                return;
+            }
+        }
+    }
+
+    /**
+     * 
+     */
+    @Override
+    public void shiftHypernodes() {
+        NGraph nGraph = buildNGraph();
+        applyHypernodePositions(nGraph);
+    }
+
+    /**
+     * @return
+     * 
+     */
+    private NGraph buildNGraph() {
+        NGraph nGraph = new NGraph();
+
+        int counter = 0;
+        // add a virtual root node
+        NNode root = NNode.of().id(counter++).origin(null).create(nGraph);
+
+        // transform nodes
+        final Map<LNode, NNode> nodeMap = Maps.newHashMap();
+        for (Layer layer : lGraph) {
+            for (LNode lNode : layer) {
+                if (lNode.getType() == NodeType.NORMAL) {
+                    NNode nNode = NNode.of()
+                            .id(counter++)
+                            .origin(lNode)
+                            .create(nGraph);
+                    nodeMap.put(lNode, nNode);
+                    // add auxiliary edges to keep LNodes in position.
+                    NEdge.of()
+                            .weight(1000)
+                            .delta((int) lNode.getPosition().x)
+                            .source(root)
+                            .target(nNode)
+                            .create();
+                }
+            }
+        }
+        for (Layer layer : lGraph) {
+            for (HyperNode hNode : hyperNodesPerLayer.get(layer)) {
+                hNode.x = layer.getPosition().x + layer.getSize().x + hNode.rank * spacings.edgeEdgeSpacing;
+                NNode nNode = NNode.of()
+                        .id(counter++)
+                        .origin(hNode)
+                        .create(nGraph);
+                List<LEdge> bundle = hyperNodeToBundle.get(hNode);
+                if (bundle != null) {
+                    LNode sourceNode = bundle.get(0).getSource().getNode();
+                    LNode targetNode = bundle.get(0).getTarget().getNode();
+                    if (sourceNode.getType() == NodeType.NORMAL) {
+                        NEdge.of()
+                                .weight(1)
+                                .delta((int) (sourceNode.getSize().x + sourceNode.getMargin().right))
+                                .source(nodeMap.get(sourceNode))
+                                .target(nNode)
+                                .create();
+                    } else if (targetNode.getType() == NodeType.NORMAL) {
+                        NEdge.of()
+                                .weight(1)
+                                .delta((int) (hNode.width + targetNode.getMargin().left))
+                                .source(nNode)
+                                .target(nodeMap.get(targetNode))
+                                .create();
                     }
                 }
             }
         }
-        maxBundleId = bundleId - 1;
+
+        // calculate dependencies
+        new ScanlineUtils(spacings).sweep(nGraph.nodes);
+
+        NetworkSimplex.forGraph(nGraph).execute(new BasicProgressMonitor());
+//        nGraph.writeDebugGraph("/home/carsten/tmp/simplex.kgx");
+
+        return nGraph;
+    }
+
+    /**
+     * @param nGraph
+     * 
+     */
+    private void applyHypernodePositions(final NGraph nGraph) {
+        for (NNode nNode : nGraph.nodes) {
+            if (nNode.origin instanceof HyperNode) {
+                ((HyperNode) nNode.origin).x = nNode.layer;
+            }
+        }
+        for (HyperNode hNode : hyperNodesPerLayer.values()) {
+            routingStrategy.calculateBendPoints(hNode, 0, this);
+        }
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#getHypernodePosition(org.eclipse.elk.alg.layered.
+     * p5edges.HyperNodeUtils.HyperNode, double, double)
+     */
+    @Override
+    public double getHypernodePosition(final HyperNode hyperNode, final double startPos, final double edgeSpacing) {
+        return hyperNode.x;
+    }
+    
+    private Map<HyperNode, Integer> offset = Maps.newIdentityHashMap();
+    
+    /**
+     * @param edge
+     * @param hNode
+     * @param point
+     * @param rightwardBend
+     */
+    @Override
+    public boolean offsetBendpoint(final LEdge edge, final HyperNode hNode, final KVector point,
+            final boolean rightwardBend, final boolean startOfSegment) {
+        List<LEdge> sortedBundle = hyperNodeToBundle.get(hNode);
+        if (sortedBundle != null) {
+            int i = sortedBundle.indexOf(edge);
+            // Integer i = offset.get(hNode) == null ? 0 : offset.get(hNode);
+            double yOffset = (startOfSegment ? edge.getSource().getNode().getType()
+                    : edge.getTarget().getNode().getType()) == NodeType.NORMAL ? 0 : i * bundleSpacing;
+            if (rightwardBend) {
+                point.add(hNode.width - i * bundleSpacing, yOffset);
+            } else {
+                point.add(i * bundleSpacing, yOffset);
+            }
+            i++;
+            // offset.put(hNode, i);
+        }
+        return false;
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see
+     * org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#getBundledAnchor(org.eclipse.elk.alg.layered.graph.
+     * LPort)
+     */
+    @Override
+    public KVector getBundledAnchor(final LPort port) {
+        LPort bundledPort = port.getProperty(InternalProperties.BUNDLED_PORT);
+        if (bundledPort != null) {
+            return bundledPort.getAbsoluteAnchor();
+        }
+        return port.getAbsoluteAnchor();
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#addHyperNodes(int, java.util.List)
+     */
+    @Override
+    public void saveHyperNodes(final List<HyperNode> hyperNodes, final Map<LPort, HyperNode> portToHyperNodeMap,
+            final int sourceLayerIndex) {
+        if (sourceLayerIndex >= 0) {
+            Layer layer = lGraph.getLayers().get(sourceLayerIndex);
+            hyperNodesPerLayer.putAll(layer, hyperNodes);
+            portToHypernodesPerLayer.put(layer, portToHyperNodeMap);
+        }
+    }
+
+    /*
+     * (non-Javadoc)
+     * 
+     * @see org.eclipse.elk.alg.layered.p5edges.bundles.IBundleHandler#calculateOriginalBendpoints(org.eclipse.elk.alg.
+     * layered.p5edges.HyperNodeUtils.HyperNode, double,
+     * org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.IRoutingDirectionStrategy)
+     */
+    @Override
+    public void calculateOriginalBendpoints(final HyperNode node, final double startPos) {
+        // Do nothing, bundled bendpoints are calculated later.
+    }
+
+    /**
+     * @param layer
+     * @param bundleId
+     * @param edge
+     */
+    private void putEdge(final Layer layer, final int bundleId, final LEdge edge) {
+        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
+        if (bundles == null) {
+            bundles = HashMultimap.create();
+            bundlesPerLayer.put(layer, bundles);
+        }
+        bundles.put(bundleId, edge);
+    }
+
+    /**
+     * @param layer
+     * @param bundleId
+     * @param edges
+     * @param edge
+     */
+    private void putAllEdges(final Layer layer, final int bundleId, final Iterable<? extends LEdge> edges) {
+        Multimap<Integer, LEdge> bundles = bundlesPerLayer.get(layer);
+        if (bundles == null) {
+            bundles = HashMultimap.create();
+            bundlesPerLayer.put(layer, bundles);
+        }
+        bundles.putAll(bundleId, edges);
     }
 
     /**
@@ -425,7 +614,7 @@ public class ActiveBundleHandler implements IBundleHandler {
      * @param edge
      * @return
      */
-    private LEdge getSuccessorEdge(LEdge edge) {
+    private LEdge getSuccessorEdge(final LEdge edge) {
         return edge.getTarget().getNode().getOutgoingEdges().iterator().next();
     }
 
@@ -433,7 +622,7 @@ public class ActiveBundleHandler implements IBundleHandler {
      * @param port
      * @return
      */
-    private LPort getSuccessorTarget(LPort port) {
+    private LPort getSuccessorTarget(final LPort port) {
         return port.getNode().getOutgoingEdges().iterator().next().getTarget();
     }
 

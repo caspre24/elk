@@ -58,7 +58,8 @@ public class NGraph {
             nodeMap.put(nNode, kNode);
             
             KLabel label = ElkUtil.createInitializedLabel(kNode);
-            label.setText(nNode.type + " " + nNode.layer);
+            label.setText(nNode.origin + " " + nNode.layer);
+//            label.setText(nNode.type + " " + nNode.layer);
         }
 
         

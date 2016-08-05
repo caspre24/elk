@@ -146,7 +146,7 @@ public final class OrthogonalRoutingGenerator {
                 final IBundleHandler bundleHandler) {
 
             // Calculate coordinates for each port's bend points
-            double x = startPos + hyperNode.rank * edgeSpacing;
+            double x = bundleHandler.getHypernodePosition(hyperNode, startPos, edgeSpacing);
 
             for (LPort port : hyperNode.ports) {
                 double sourcey = bundleHandler.getBundledAnchor(port).y;
@@ -154,14 +154,22 @@ public final class OrthogonalRoutingGenerator {
                 for (LEdge edge : port.getOutgoingEdges()) {
                     LPort target = edge.getTarget();
                     double targety = bundleHandler.getBundledAnchor(target).y;
-                    if (Math.abs(sourcey - targety) > TOLERANCE) {
-                        KVector point1 = new KVector(x, sourcey);
+                    KVector point1 = new KVector(x, sourcey);
+                    KVector point2 = new KVector(x, targety);
+                    boolean mightNeedJunction1 =
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point1, sourcey < targety, true);
+                    boolean mightNeedJunction2 =
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point2, sourcey < targety, false);
+                    if (Math.abs(point1.y - point2.y) > TOLERANCE) {
                         edge.getBendPoints().add(point1);
-                        addJunctionPointIfNecessary(edge, hyperNode, point1, true);
+                        if (mightNeedJunction1) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point1, true);
+                        }
 
-                        KVector point2 = new KVector(x, targety);
                         edge.getBendPoints().add(point2);
-                        addJunctionPointIfNecessary(edge, hyperNode, point2, true);
+                        if (mightNeedJunction2) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point2, true);
+                        }
                     }
                 }
             }
@@ -202,7 +210,7 @@ public final class OrthogonalRoutingGenerator {
                 final IBundleHandler bundleHandler) {
 
             // Calculate coordinates for each port's bend points
-            double y = startPos + hyperNode.rank * edgeSpacing;
+            double y = bundleHandler.getHypernodePosition(hyperNode, startPos, edgeSpacing);
 
             for (LPort port : hyperNode.ports) {
                 double sourcex = bundleHandler.getBundledAnchor(port).x;
@@ -210,14 +218,22 @@ public final class OrthogonalRoutingGenerator {
                 for (LEdge edge : port.getOutgoingEdges()) {
                     LPort target = edge.getTarget();
                     double targetx = bundleHandler.getBundledAnchor(target).x;
-                    if (Math.abs(sourcex - targetx) > TOLERANCE) {
-                        KVector point1 = new KVector(sourcex, y);
+                    KVector point1 = new KVector(sourcex, y);
+                    KVector point2 = new KVector(targetx, y);
+                    boolean mightNeedJunction1 = 
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point1, sourcex > targetx, true);
+                    boolean mightNeedJunction2 = 
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point2, sourcex > targetx, false);
+                    if (Math.abs(point1.x - point2.x) > TOLERANCE) {
                         edge.getBendPoints().add(point1);
-                        addJunctionPointIfNecessary(edge, hyperNode, point1, false);
+                        if (mightNeedJunction1) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point1, false);
+                        }
 
-                        KVector point2 = new KVector(targetx, y);
                         edge.getBendPoints().add(point2);
-                        addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+                        if (mightNeedJunction2) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+                        }
                     }
                 }
             }
@@ -258,7 +274,7 @@ public final class OrthogonalRoutingGenerator {
                 final IBundleHandler bundleHandler) {
 
             // Calculate coordinates for each port's bend points
-            double y = startPos - hyperNode.rank * edgeSpacing;
+            double y = bundleHandler.getHypernodePosition(hyperNode, startPos, edgeSpacing);
 
             for (LPort port : hyperNode.ports) {
                 double sourcex = bundleHandler.getBundledAnchor(port).x;
@@ -266,14 +282,22 @@ public final class OrthogonalRoutingGenerator {
                 for (LEdge edge : port.getOutgoingEdges()) {
                     LPort target = edge.getTarget();
                     double targetx = bundleHandler.getBundledAnchor(target).x;
-                    if (Math.abs(sourcex - targetx) > TOLERANCE) {
-                        KVector point1 = new KVector(sourcex, y);
+                    KVector point1 = new KVector(sourcex, y);
+                    KVector point2 = new KVector(targetx, y);
+                    boolean mightNeedJunction1 = 
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point1, sourcex < targetx, true);
+                    boolean mightNeedJunction2 = 
+                            bundleHandler.offsetBendpoint(edge, hyperNode, point2, sourcex < targetx, false);
+                    if (Math.abs(point1.x - point2.x) > TOLERANCE) {
                         edge.getBendPoints().add(point1);
-                        addJunctionPointIfNecessary(edge, hyperNode, point1, false);
+                        if (mightNeedJunction1) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point1, false);
+                        }
 
-                        KVector point2 = new KVector(targetx, y);
                         edge.getBendPoints().add(point2);
-                        addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+                        if (mightNeedJunction2) {
+                            addJunctionPointIfNecessary(edge, hyperNode, point2, false);
+                        }
                     }
                 }
             }
@@ -310,10 +334,10 @@ public final class OrthogonalRoutingGenerator {
     private final Set<KVector> createdJunctionPoints = Sets.newHashSet();
     /** prefix of debug output files. */
     private final String debugPrefix;
-
+    
     ///////////////////////////////////////////////////////////////////////////////
     // Constructor
-
+    
     /**
      * Constructs a new instance.
      * 
@@ -344,10 +368,22 @@ public final class OrthogonalRoutingGenerator {
         this.conflictThreshold = CONFL_THRESH_FACTOR * edgeSpacing;
         this.debugPrefix = debugPrefix;
     }
+    /**
+     * @return the routingStrategy
+     */
+    public IRoutingDirectionStrategy getRoutingStrategy() {
+        return routingStrategy;
+    }
 
     ///////////////////////////////////////////////////////////////////////////////
     // Edge Routing
 
+    /**
+     * @return the conflictThreshold
+     */
+    public double getConflictThreshold() {
+        return conflictThreshold;
+    }
     /**
      * Route edges between the given layers.
      * 
@@ -367,7 +403,7 @@ public final class OrthogonalRoutingGenerator {
             final Iterable<LNode> targetLayerNodes, final double startPos) {
 
         return routeEdges(layeredGraph, sourceLayerNodes, sourceLayerIndex, targetLayerNodes, startPos,
-                new LazyBundleHandler());
+                new LazyBundleHandler(routingStrategy));
     }
 
     /**
@@ -398,9 +434,8 @@ public final class OrthogonalRoutingGenerator {
                 portToHyperNodeMap, routingStrategy);
         HyperNodeUtils.createHyperNodes(targetLayerNodes, routingStrategy.getTargetPortSide(), hyperNodes,
                 portToHyperNodeMap, routingStrategy);
-
-        // merge hypernodes for bundled edges, if applicable
-        bundleHandler.mergeHypernodes(hyperNodes, portToHyperNodeMap, routingStrategy, sourceLayerIndex);
+        
+        bundleHandler.saveHyperNodes(hyperNodes, portToHyperNodeMap, sourceLayerIndex);
 
         // create dependencies for the hypernode ordering graph
         HyperNodeUtils.createDependencies(hyperNodes, conflictThreshold);
@@ -433,7 +468,8 @@ public final class OrthogonalRoutingGenerator {
 
             rankCount = Math.max(rankCount, node.rank);
 
-            routingStrategy.calculateBendPoints(node, startPos, bundleHandler);
+//            routingStrategy.calculateBendPoints(node, startPos, bundleHandler);
+            bundleHandler.calculateOriginalBendpoints(node, startPos);
         }
 
         // release the created resources

@@ -11,7 +11,7 @@
 package org.eclipse.elk.alg.layered.p5edges.bundles;
 
 import org.eclipse.elk.alg.layered.graph.LGraph;
-import org.eclipse.elk.alg.layered.p5edges.bundles.BundleHandling.Strategy;
+import org.eclipse.elk.alg.layered.p5edges.OrthogonalRoutingGenerator.IRoutingDirectionStrategy;
 import org.eclipse.elk.alg.layered.properties.LayeredOptions;
 
 /**
@@ -48,11 +48,11 @@ public final class BundleHandling {
      * @param lGraph
      * @return
      */
-    public static IBundleHandler createHandler(final LGraph lGraph) {
+    public static IBundleHandler createHandler(final LGraph lGraph, final IRoutingDirectionStrategy routingStrategy) {
         if (lGraph.getProperty(LayeredOptions.EDGE_BUNDLING_STRATEGY) == BundleHandling.Strategy.NONE) {
-            return new LazyBundleHandler();
+            return new LazyBundleHandler(routingStrategy);
         } else {
-            return new ActiveBundleHandler(lGraph);
+            return new ActiveBundleHandler(lGraph, routingStrategy);
         }
     }
 }
